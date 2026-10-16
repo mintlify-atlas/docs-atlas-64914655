@@ -1,0 +1,196 @@
+---
+title: "Security Configuration: JWT, Cookies, and Access Control"
+sidebarTitle: "Security"
+description: "How CNEL Analytics issues JWT tokens, stores them in HttpOnly cookies, protects routes with decorators, and configures CORS for production."
+---
+
+CNEL Analytics authenticates every request using JSON Web Tokens (JWTs) signed with HMAC-SHA256. Tokens are issued at login, stored in an HttpOnly cookie that JavaScript cannot read, and verified on every protected route. Role-based access control is enforced at the route level through Python decorators, keeping authorization logic out of individual view functions.
+
+## JWT configuration
+
+Tokens are signed with the `HS256` algorithm using the `SECRET_KEY` environment variable. All token parameters are defined in `Settings` (`backend/app/core/config.py`):
+
+| Setting | Value | Description |
+|---|---|---|
+| `ALGORITHM` | `HS256` | HMAC with SHA-256 — symmetric signing |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` (8 hours) | Lifetime of each issued token |
+
+### Token payload
+
+`create_access_token` (defined in `routers/auth.py`) encodes the following claims into every token:
+
+| Claim | Type | Description |
+|---|---|---|
+| `sub` | string | User ID (primary key from `usuarios`) |
+| `username` | string | Login username |
+| `rol` | string | Role name (e.g. `ADMIN`, `CONSULTA`) |
+| `permisos` | list of strings | Permission codes granted to the role |
+| `exp` | timestamp | Expiry time (UTC) |
+
+```python backend/app/routers/auth.py
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+```
+
+<Warning>
+  `SECRET_KEY` must be at least 32 characters long. If it is unset or shorter,
+  `Settings` raises `RuntimeError` at startup and the application will not
+  accept any requests until the variable is corrected. See
+  [Environment Variables](/configuration/environment) for how to generate a
+  secure key.
+</Warning>
+
+## Cookie storage
+
+After a successful login, the token is placed in a `Set-Cookie` response header. The login handler in `routers/auth.py` calls `response.set_cookie` with the following attributes:
+
+| Attribute | Value | Effect |
+|---|---|---|
+| `key` | `access_token` | Cookie name read by `get_current_user` |
+| `value` | `Bearer <token>` | Prefixed so the value can be stripped and used directly |
+| `httponly` | `True` | Inaccessible to JavaScript — prevents XSS token theft |
+| `samesite` | `"lax"` | Sent on top-level navigations; blocks cross-site POST forgery |
+| `path` | `"/"` | Available to every route on the origin |
+| `max_age` | `28800` | Expires after 8 hours (matches `ACCESS_TOKEN_EXPIRE_MINUTES`) |
+
+```python backend/app/routers/auth.py
+response.set_cookie(
+    key="access_token",
+    value=f"Bearer {access_token}",
+    httponly=True,
+    samesite="lax",
+    path="/",
+    max_age=28800  # 8 hours
+)
+```
+
+Because the cookie is `HttpOnly`, no client-side script can read or exfiltrate the token, even if a cross-site scripting vulnerability is present in a page.
+
+<Note>
+  The `Authorization` header is also accepted. `get_current_user` checks the
+  `Authorization: Bearer <token>` header first; the cookie is used as a
+  fallback only when the header is absent. This means programmatic API clients
+  can authenticate with a standard `Authorization` header without needing to
+  manage cookies, while the browser-based UI relies on the cookie automatically.
+</Note>
+
+## Route protection
+
+### `login_required` decorator
+
+Defined in `app/core/decorators.py`, this decorator wraps Jinja2 view functions. It extracts the current user from the request (checking the cookie), and redirects unauthenticated requests to `/` — clearing any stale cookie in the process:
+
+```python backend/app/core/decorators.py
+def login_required(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        request: Request | None = kwargs.get("request")
+        if not request:
+            for arg in args:
+                if isinstance(arg, Request):
+                    request = arg
+                    break
+
+        if not request:
+            raise ValueError("La función decorada debe recibir 'request: Request'")
+
+        user = await run_in_threadpool(get_user_from_request, request)
+
+        # If no active user, redirect to login and clear any stale cookie
+        if not user:
+            response = RedirectResponse(url="/", status_code=303)
+            response.delete_cookie("access_token", path="/")
+            return response
+
+        response = await run_in_threadpool(func, *args, **kwargs)
+
+        # Prevent Chrome from serving the view from the in-memory cache
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
+        return response
+
+    return wrapper
+```
+
+The decorator also sets aggressive `Cache-Control` headers on every protected response so that browsers do not serve stale authenticated pages after logout.
+
+### `admin_required` decorator
+
+Defined in `app/routers/admin.py`, this decorator extends the pattern to enforce role membership. A user must be authenticated **and** have a role of `ADMIN` or `ADMINISTRADOR` (checked case-insensitively); all others are redirected to `/`:
+
+```python backend/app/routers/admin.py
+def admin_required(func):
+    async def wrapper(*args, **kwargs):
+        request: Request = kwargs.get("request")
+        ...
+        user = await run_in_threadpool(get_user_from_request, request)
+
+        if not user or user.get("rol", "").upper() not in ["ADMIN", "ADMINISTRADOR"]:
+            return RedirectResponse(url="/", status_code=303)
+
+        response = await run_in_threadpool(func, *args, **kwargs)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return response
+    return wrapper
+```
+
+| Decorator | Location | Redirects when |
+|---|---|---|
+| `@login_required` | `app/core/decorators.py` | User is not authenticated |
+| `@admin_required` | `app/routers/admin.py` | User is not authenticated **or** role is not `ADMIN`/`ADMINISTRADOR` |
+
+## CORS
+
+CORS middleware is registered in `backend/main.py`:
+
+```python backend/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+The wildcard `allow_origins=["*"]` is suitable for local development where the frontend and backend may run on different ports, but it permits any origin to make credentialed requests in production.
+
+<Warning>
+  Change `allow_origins=["*"]` to an explicit list of your production domain(s)
+  before deploying. For example:
+
+  ```python
+  allow_origins=["https://analytics.cnel.gob.ec"]
+  ```
+
+  Leaving the wildcard in production allows any website to make authenticated
+  cross-origin requests using a visitor's session cookie.
+</Warning>
+
+## Generating a `SECRET_KEY`
+
+Run the following command to produce a cryptographically random 64-character URL-safe string suitable for use as `SECRET_KEY`:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Copy the output into your `.env` file:
+
+```ini .env
+SECRET_KEY=<paste output here>
+```
+
+<Warning>
+  Changing `SECRET_KEY` immediately invalidates every active session. All
+  logged-in users will be redirected to the login page on their next request.
+  Plan key rotations during low-traffic windows and communicate the disruption
+  to staff in advance.
+</Warning>

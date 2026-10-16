@@ -1,0 +1,332 @@
+---
+title: "GET /api/clientes/{codigo} — Full Customer Data Response"
+sidebarTitle: "GET /api/clientes"
+description: "Retrieve complete customer data including personal details, billing history, consumption records, payment agreements, and meter readings from CNEL systems."
+---
+
+The `/api/clientes/{codigo_cliente}` endpoint is the primary data source for CNEL EP staff. A single request aggregates records from multiple SAP and SICO tables — personal information, credit/debit notes, payment agreements, account ledger entries, historical consumption, and meter readings — and returns them as one structured JSON response. Authentication is enforced via a JWT cookie or `Authorization` header; unauthenticated requests are rejected before any database query is made.
+
+**Endpoint:** `GET /api/clientes/{codigo_cliente}`
+
+**Auth:** Required — JWT cookie (`access_token=Bearer <token>`) or `Authorization: Bearer <token>` header
+
+**Tags:** `Clientes`
+
+---
+
+## Path Parameters
+
+<ParamField path="codigo_cliente" type="string" required>
+  The numeric client code assigned in CNEL's billing system. Must match the pattern `^[0-9]+$` — non-numeric characters cause FastAPI to return HTTP 422 before the handler is called.
+</ParamField>
+
+---
+
+## Response Schema
+
+HTTP **200** — `ClienteCompletoResponse`
+
+The response is a single JSON object with seven top-level keys. All nested date-time values are ISO 8601 strings (`YYYY-MM-DDTHH:MM:SS`).
+
+### `datos_personales` — `ClienteBase`
+
+<ResponseField name="datos_personales" type="object">
+  Personal and contract data for the client, sourced from tables `cmclient`, `cmdattec`, `CMDATMED`, and `CMCONVEN`.
+
+  <Expandable title="ClienteBase fields">
+    <ResponseField name="codigo_cliente" type="string | integer">
+      The client's unique numeric identifier in the CNEL billing system.
+    </ResponseField>
+    <ResponseField name="nombre" type="string | null">
+      Full registered name of the customer.
+    </ResponseField>
+    <ResponseField name="cedula" type="string | null">
+      National identity document number (`ci_cliente`).
+    </ResponseField>
+    <ResponseField name="fecha_instalacion" type="datetime | null">
+      Date the electrical service was installed at the premises (`fx_instala`).
+    </ResponseField>
+    <ResponseField name="direccion" type="string | null">
+      Primary service address (`no_dirprinc`).
+    </ResponseField>
+    <ResponseField name="telefono" type="string | null">
+      Contact phone number on file (`tx_fono`).
+    </ResponseField>
+    <ResponseField name="medidor" type="string | null">
+      Meter serial number (`cx_nummed`) from the most recent meter record.
+    </ResponseField>
+    <ResponseField name="marca" type="string | null">
+      Meter manufacturer brand (`cx_marca`).
+    </ResponseField>
+    <ResponseField name="serie" type="string | null">
+      Meter manufacturing series (`cx_serie`).
+    </ResponseField>
+    <ResponseField name="modelo_medidor" type="string | null">
+      Meter model identifier (`cx_modelo`).
+    </ResponseField>
+    <ResponseField name="consumo_promedio" type="decimal | null">
+      Average kWh consumption calculated by the billing system (`qn_promedio`).
+    </ResponseField>
+    <ResponseField name="meses_deuda" type="integer | null">
+      Number of months with outstanding debt (`qn_antdeuda`).
+    </ResponseField>
+    <ResponseField name="deuda_sap" type="decimal | null">
+      Current outstanding balance in SAP (`vx_saldo`).
+    </ResponseField>
+    <ResponseField name="deuda_convenio" type="decimal | null">
+      Total debt covered under the most recent payment agreement (`vt_deuda`).
+    </ResponseField>
+    <ResponseField name="num_partes_convenio" type="string | null">
+      Number of installment parts in the active payment agreement (`qn_partes`).
+    </ResponseField>
+    <ResponseField name="fecha_convenio" type="datetime | null">
+      Start date of the most recent payment agreement (`fi_convenio`).
+    </ResponseField>
+    <ResponseField name="obs_convenio" type="string | null">
+      Free-text observation recorded on the payment agreement (`tx_observ`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### `creditos_debitos` — `CreditoDebitoBase[]`
+
+<ResponseField name="creditos_debitos" type="array">
+  Historical credit and debit notes sourced from the `FAHISCRE` table, ordered by calculation date descending.
+
+  <Expandable title="CreditoDebitoBase fields">
+    <ResponseField name="fecha" type="datetime | null">
+      Note calculation date (`fx_calculo`).
+    </ResponseField>
+    <ResponseField name="numero_nota" type="integer | null">
+      Credit/debit note number (`qs_notadc`).
+    </ResponseField>
+    <ResponseField name="kwh" type="integer | null">
+      Energy quantity associated with the note in kWh (`qn_consumo`).
+    </ResponseField>
+    <ResponseField name="valor" type="decimal | null">
+      Monetary value of the credit or debit note (`vx_ndctotal`).
+    </ResponseField>
+    <ResponseField name="tipo_cargo" type="string | null">
+      Charge type code (`tp_cargo`).
+    </ResponseField>
+    <ResponseField name="codigo_nota" type="integer | null">
+      Internal note indicator code (`cx_indndc`).
+    </ResponseField>
+    <ResponseField name="orden" type="integer | null">
+      Processing order within the same calculation date (`qn_orden`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### `convenios` — `ConvenioBase[]`
+
+<ResponseField name="convenios" type="array">
+  All payment agreement records for the client from the `CMCONVEN` table, ordered by agreement date descending.
+
+  <Expandable title="ConvenioBase fields">
+    <ResponseField name="fecha" type="datetime | null">
+      Agreement start date (`fi_convenio`).
+    </ResponseField>
+    <ResponseField name="deuda" type="decimal | null">
+      Total debt amount covered by the agreement (`vt_deuda`).
+    </ResponseField>
+    <ResponseField name="numero_partes" type="string | null">
+      Number of installment parts agreed upon (`qn_partes`).
+    </ResponseField>
+    <ResponseField name="saldo_pendiente" type="decimal | null">
+      Remaining unpaid balance on the agreement (`vx_porpagar`).
+    </ResponseField>
+    <ResponseField name="estado" type="string | null">
+      Agreement status code (`ce_convenio`).
+    </ResponseField>
+    <ResponseField name="observacion" type="string | null">
+      Staff-entered observation notes (`tx_observ`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### `estado_cuenta` — `EstadoCuentaBase[]`
+
+<ResponseField name="estado_cuenta" type="array">
+  Full account ledger history from the `fahisdeu` table, ordered by event date ascending.
+
+  <Expandable title="EstadoCuentaBase fields">
+    <ResponseField name="fecha" type="datetime | null">
+      Event date (`fi_evento`).
+    </ResponseField>
+    <ResponseField name="tipo_evento" type="string | null">
+      Event type code (`tp_evento`), e.g. invoice issued, payment received.
+    </ResponseField>
+    <ResponseField name="codigo_evento" type="string | null">
+      Event indicator code (`cx_indevento`).
+    </ResponseField>
+    <ResponseField name="factura" type="integer | null">
+      Invoice number associated with the event (`qs_factura`).
+    </ResponseField>
+    <ResponseField name="valor" type="decimal | null">
+      Monetary value of the event (`vx_evento`).
+    </ResponseField>
+    <ResponseField name="saldo" type="decimal | null">
+      Running account balance after this event (`vx_saldo`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### `estado_sico`
+
+<ResponseField name="estado_sico" type="array">
+  Reserved for SICO system state records. Always returns an empty array `[]` in the current version of the API.
+</ResponseField>
+
+<Note>
+  The underlying `obtener_estado_sico` query function exists in the repository layer but is intentionally not called by this endpoint. The field is preserved in the response schema for forward compatibility.
+</Note>
+
+---
+
+### `consumos` — `ConsumoBase[]`
+
+<ResponseField name="consumos" type="array">
+  Historical consumption records from the `fahiscon` table, ordered by billing period descending.
+
+  <Expandable title="ConsumoBase fields">
+    <ResponseField name="periodo" type="string | null">
+      Billing period in `YYYYMM` format (`fx_factura`), e.g. `"202312"` for December 2023.
+    </ResponseField>
+    <ResponseField name="kwh" type="decimal | integer | null">
+      Active energy consumption in kilowatt-hours for the period (`qx_conact`).
+    </ResponseField>
+    <ResponseField name="kwh_reactiva" type="integer | null">
+      Reactive energy in kilovolt-ampere reactive hours (`qx_conreac`).
+    </ResponseField>
+    <ResponseField name="dias_facturados" type="integer | null">
+      Number of days included in the billing cycle (`qn_diascons`).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### `lecturas` — `LecturaBase[]`
+
+<ResponseField name="lecturas" type="array">
+  Historical meter reading records from `faHISLEC`, joined against `CTTPLECT` (reading types) and `CTOBSERV` (observation descriptions). Ordered by reading date descending.
+
+  <Expandable title="LecturaBase fields">
+    <ResponseField name="cx_cliente" type="string | integer | null">
+      Client code on the reading record.
+    </ResponseField>
+    <ResponseField name="cx_nummed" type="string | null">
+      Meter number the reading was taken from.
+    </ResponseField>
+    <ResponseField name="fx_tomalec" type="datetime | null">
+      Date the reading was taken.
+    </ResponseField>
+    <ResponseField name="qx_ultlec" type="decimal | null">
+      Previous meter reading value.
+    </ResponseField>
+    <ResponseField name="qx_tomalec" type="decimal | null">
+      Current reading value taken by the field technician.
+    </ResponseField>
+    <ResponseField name="qx_factlec" type="decimal | null">
+      Reading value used for invoice calculation.
+    </ResponseField>
+    <ResponseField name="consumo_kwh" type="decimal | null">
+      Calculated consumption: `qx_tomalec − qx_ultlec`. `null` when the previous reading is unavailable.
+    </ResponseField>
+    <ResponseField name="tipo_lectura_desc" type="string | null">
+      Human-readable reading type description from `CTTPLECT.tx_tplectura`.
+    </ResponseField>
+    <ResponseField name="cx_observa" type="string | null">
+      Observation code recorded at the time of reading.
+    </ResponseField>
+    <ResponseField name="observacion_desc" type="string | null">
+      Resolved observation description from `CTOBSERV.tx_descobs`. Returns `"Sin observacion"` when the code is `"00"`.
+    </ResponseField>
+    <ResponseField name="cx_tipo" type="string | null">
+      Record type indicator on the reading entry.
+    </ResponseField>
+    <ResponseField name="tp_lectura" type="string | null">
+      Raw reading type code from `faHISLEC.tp_lectura`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Error Responses
+
+| Status | Detail | Cause |
+|--------|--------|-------|
+| `401 Unauthorized` | — | Request made without a valid JWT. |
+| `404 Not Found` | `"El código de cliente no fue encontrado."` | No record exists in `cmclient` for the given `codigo_cliente`. |
+| `503 Service Unavailable` | `"No se pudo consultar la base de datos. Inténtelo nuevamente más tarde."` | SQL Server is unreachable or the initial client lookup raises a `SQLAlchemyError`. |
+| `503 Service Unavailable` | `"No se pudieron obtener los datos del cliente. Inténtelo nuevamente más tarde."` | Client record found, but a subsequent query (e.g. consumos, lecturas) fails with a `SQLAlchemyError`. |
+
+---
+
+## Example
+
+### Request
+
+```bash
+curl -b "access_token=Bearer <token>" \
+  http://localhost:8000/api/clientes/1313
+```
+
+### Partial Response (HTTP 200)
+
+```json
+{
+  "datos_personales": {
+    "codigo_cliente": "1313",
+    "nombre": "MARIA PEREZ",
+    "cedula": "0912345678",
+    "fecha_instalacion": "2015-03-10T00:00:00",
+    "direccion": "AV. PRINCIPAL 123",
+    "telefono": "0991234567",
+    "medidor": "MED-00456",
+    "marca": "LANDIS+GYR",
+    "serie": "S-2023",
+    "modelo_medidor": "E350",
+    "consumo_promedio": 145.50,
+    "meses_deuda": 2,
+    "deuda_sap": 87.30,
+    "deuda_convenio": null,
+    "num_partes_convenio": null,
+    "fecha_convenio": null,
+    "obs_convenio": null
+  },
+  "consumos": [
+    {
+      "periodo": "202312",
+      "kwh": 150,
+      "kwh_reactiva": 12,
+      "dias_facturados": 30
+    },
+    {
+      "periodo": "202311",
+      "kwh": 141,
+      "kwh_reactiva": 10,
+      "dias_facturados": 30
+    }
+  ],
+  "creditos_debitos": [],
+  "convenios": [],
+  "estado_cuenta": [],
+  "estado_sico": [],
+  "lecturas": []
+}
+```
+
+<Tip>
+  The `estado_sico` array is always `[]`. All remaining arrays may be empty if no records exist for the client in the corresponding source table.
+</Tip>

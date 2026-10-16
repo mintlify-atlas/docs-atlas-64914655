@@ -1,0 +1,57 @@
+---
+title: "Consumption History: Energy Usage Charts and Yearly Filtering"
+sidebarTitle: "Consumption"
+description: "Visualize active and reactive energy consumption over time with Chart.js charts and per-year filtering, sourced from FAHISCON (RF-07)."
+---
+
+The Consumption module (`/consumo`) implements requirement **RF-07** and provides a dual-view interface — a sortable data table alongside an interactive Chart.js line chart — for analyzing a customer's historical energy usage. All records are sourced from the `FAHISCON` table and are returned in descending billing-period order by default, with the chart reversing that order so the x-axis reads chronologically from past to present.
+
+## Data Fields
+
+The `obtener_consumos()` repository function returns one row per billing period. Each row contains:
+
+| Field | Source column | Type | Description |
+|---|---|---|---|
+| `periodo` | `fx_factura` | string | Billing period in `YYYYMM` format (e.g., `202301`) |
+| `kwh` | `qx_conact` | decimal / int | Active energy consumed during the period (kWh) |
+| `kwh_reactiva` | `qx_conreac` | integer | Reactive energy consumed during the period (kvarh) |
+| `dias_facturados` | `qn_diascons` | integer | Number of days included in the billing period |
+
+Records are ordered by `fx_factura DESC` so the most recent period appears at the top of the table.
+
+## Period Format
+
+Billing periods are stored as six-digit integers in `YYYYMM` format. The `formatearPeriodoConsumo()` function in `consumo.js` converts these to a human-readable `YYYY/MM` representation for display in both the table and the chart axis labels. For example:
+
+| Raw value (`periodo`) | Displayed as |
+|---|---|
+| `202301` | `2023/01` |
+| `202312` | `2023/12` |
+| `202406` | `2024/06` |
+
+If the raw value does not match the compact `YYYYMM` pattern, it is displayed as-is without transformation.
+
+## Year Filter
+
+A **Year** dropdown above the table lets staff narrow consumption records to a single calendar year.
+
+- On load, `consumo.js` extracts the four-digit year from every `periodo` value using the regex `/^((?:19|20)\d{2})(?:\d{2}|[-/]|$)/`, deduplicates the results, sorts them descending, and populates the dropdown automatically.
+- Selecting a year calls `filtrarConsumoPorAnio()`, which filters `consumosActuales` in memory, re-renders the table, and destroys and recreates the Chart.js instance to avoid canvas conflicts.
+- The active year filter is persisted to the module's local filter state via `guardarFiltrosModulo('consumo', { anio })`, so switching tabs and returning does not reset the selection.
+- Click **Clear Filter** (hidden when no filter is active) to reset the dropdown to "All years" and restore the full data set.
+
+## Chart Visualization
+
+The energy chart renders beneath the filter controls and provides a visual summary of active kWh consumption over time:
+
+- **Chart type:** Line chart with area fill (`fill: true`)
+- **X-axis:** Billing periods formatted as `YYYY/MM`, displayed in chronological order (oldest → newest)
+- **Y-axis:** Active energy in kWh, starting at zero
+- **Dataset color:** Indigo (`#6366F1`) border with a semi-transparent fill
+- **Points:** 4 px radius markers on each data point
+
+Every time a year filter is applied or cleared, the existing `Chart` instance is destroyed via `consumoChartInstance.destroy()` before a new one is created on the same `<canvas id="chartConsumo">` element. This prevents the "Canvas is already in use" error that occurs when Chart.js attempts to initialize on an occupied context.
+
+<Note>
+  If no consumption records exist for a customer, the table displays an empty-state message — "No se encontraron consumos para este cliente." — and the chart canvas is left blank. No error is thrown.
+</Note>

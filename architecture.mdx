@@ -1,0 +1,138 @@
+---
+title: "CNEL Analytics System Architecture Overview"
+sidebarTitle: "Architecture"
+description: "A single FastAPI process serves Jinja2 HTML views and a JSON API, backed by a read-only SQL Server instance and a local PostgreSQL database."
+---
+
+CNEL Analytics runs as a single Python process powered by FastAPI and uvicorn. That single process simultaneously handles two kinds of traffic: JSON API requests under the `/api/*` and `/auth/*` prefixes, and full HTML page requests for every frontend route such as `/dashboard`, `/info-cliente`, and `/estado-cuenta`. HTML responses are produced by Jinja2 templates stored in `frontend/pages/`, while static assets (CSS, JS, images) are mounted as three independent `StaticFiles` mounts under `/static/css`, `/static/js`, and `/static/img`. There is no separate Node.js build step or single-page application framework — the frontend is vanilla JavaScript loaded by the browser once the server renders and returns an HTML page.
+
+## Request Flow
+
+When a browser visits any protected route the following sequence occurs:
+
+1. **Browser sends GET request** with the `access_token` HttpOnly cookie attached automatically by the browser.
+2. **`login_required` decorator** on the route handler extracts the cookie value, strips the `Bearer ` prefix, and calls `get_current_user()` from `app/routers/auth.py`.
+3. **`get_current_user()`** decodes the JWT with `PyJWT` using `SECRET_KEY` and `HS256`, then queries the PostgreSQL `usuarios` table to confirm the user is still active.
+4. **Route handler executes**, optionally querying the SQL Server cloud database via `get_db()` for customer data.
+5. **`inject_user` context processor** runs before every `TemplateResponse`, injecting the authenticated user's details (username, full name, first name, role, permissions) into the Jinja2 template context so every page can render the navigation bar and personalised greeting without repeating the lookup.
+6. **Jinja2 renders the HTML** and the complete page is returned to the browser.
+
+For AJAX calls made from vanilla JS, the same `access_token` cookie is sent automatically. API routes use `Depends(get_current_user)` instead of the `login_required` decorator, but the token resolution logic is identical — the function checks `Authorization: Bearer` headers first, then falls back to the cookie.
+
+<Note>
+  JWT tokens expire after **8 hours (480 minutes)** as configured by `ACCESS_TOKEN_EXPIRE_MINUTES` in `app/core/config.py`. The cookie is set with `httponly=True`, `samesite="lax"`, `path="/"`, and `max_age=28800` — meaning it is inaccessible to JavaScript, scoped to all paths on the domain, and automatically removed by the browser after 8 hours. Logout explicitly deletes the cookie from both `path="/"` and `path="/auth"` and overwrites it with a zero-`max_age` value to force immediate browser removal.
+</Note>
+
+## Dual Database Architecture
+
+CNEL Analytics maintains two completely separate SQLAlchemy engines and session factories in `app/db/session.py`, one for each database backend.
+
+**SQL Server — CNEL EP Cloud (read-only)**
+
+The cloud engine connects to the CNEL EP SQL Server instance using `mssql+pyodbc` with an ODBC connection string built dynamically from environment variables by the `CLOUD_DATABASE_URL` property in `Settings`. All customer-facing queries run against this database. The relevant tables are:
+
+| Table | Contents |
+|---|---|
+| `CMCLIENT` | Customer master record (personal data, address, account type) |
+| `CMDATTEC` | Technical data associated with each account |
+| `CMDATMED` | Meter device data |
+| `CMCONVEN` | Active and historical payment agreements |
+| `FAHISCRE` | Historical credit notes |
+| `FAHISDEU` | Historical debit notes and outstanding balances |
+| `FAHISCON` | Historical electricity consumption records |
+| `FAHISLEC` | Historical meter reading sequences |
+
+This engine is **read-only by design** — no INSERT, UPDATE, or DELETE statements are executed against it. All queries are defined in `app/repositories/querys.py` and called from the route handlers in `app/routers/clientes.py` and `app/routers/export.py`.
+
+**PostgreSQL — Local application database (read-write)**
+
+The local engine connects to a PostgreSQL instance using `postgresql+psycopg2`. This database owns all application-specific state and is the only database that receives write operations.
+
+| Table | Contents |
+|---|---|
+| `usuarios` | Staff accounts (username, hashed password, full name, email, active flag) |
+| `roles` | Role definitions (e.g. `ADMIN`, `CONSULTA`) |
+| `permisos` | Permission codes that can be assigned to roles |
+| `roles_permisos` | Many-to-many join between roles and permissions |
+| `logs_acceso` | Audit log of every login event, recording `usuario_id`, `accion`, and `detalles` |
+
+**Session factories**
+
+```python
+# app/db/session.py
+
+# Cloud engine — SQL Server (CNEL EP customer data)
+engine_cloud = create_engine(settings.CLOUD_DATABASE_URL, pool_pre_ping=True)
+SessionCloud = sessionmaker(autocommit=False, autoflush=False, bind=engine_cloud)
+
+def get_db():
+    """FastAPI dependency — yields a SQL Server session."""
+    db = SessionCloud()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Local engine — PostgreSQL (users, roles, logs)
+engine_local = create_engine(settings.LOCAL_DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_local)
+
+def get_local_db():
+    """FastAPI dependency — yields a PostgreSQL session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+```
+
+Route handlers declare which database they need by adding `db: Session = Depends(get_db)` for the cloud database or `db: Session = Depends(get_local_db)` for the local database. Both can be injected into the same handler simultaneously when a route needs to read customer data and write an access log in the same request.
+
+## Directory Structure
+
+```
+CNEL-ANALITYCS/
+├── backend/
+│   ├── main.py                # FastAPI app entry point, routes, static files
+│   ├── app/
+│   │   ├── core/
+│   │   │   ├── config.py      # Settings from .env
+│   │   │   ├── decorators.py  # login_required, admin_required
+│   │   │   └── context_processors.py  # inject_user for Jinja2
+│   │   ├── db/
+│   │   │   └── session.py     # SQLAlchemy engines and session factories
+│   │   ├── repositories/
+│   │   │   └── querys.py      # All SQL queries against CNEL cloud DB
+│   │   ├── routers/
+│   │   │   ├── auth.py        # JWT login/logout
+│   │   │   ├── clientes.py    # GET /api/clientes/{codigo}
+│   │   │   ├── export.py      # GET /api/export/excel/{codigo}
+│   │   │   └── admin.py       # Admin user CRUD
+│   │   └── schemas/
+│   │       └── cliente.py     # Pydantic response models
+│   └── requirements.txt
+└── frontend/
+    ├── pages/                 # Jinja2 HTML templates
+    ├── js/                    # Vanilla JS modules per view
+    ├── css/                   # Stylesheets
+    └── img/                   # Static images
+```
+
+The `backend/main.py` file is the single entry point. It instantiates the `FastAPI` app, registers all four routers (`auth`, `clientes`, `export`, `admin`), mounts the three static file directories, configures the Jinja2 template engine with the `inject_user` context processor, and defines all frontend view routes — each decorated with `@login_required`.
+
+## Authentication Flow
+
+When a user submits their credentials on the login page, the browser sends a `POST /auth/login` request with `application/x-www-form-urlencoded` body (standard `OAuth2PasswordRequestForm`). The login handler:
+
+1. Queries the PostgreSQL `usuarios` table for a matching `username` or `email`.
+2. Verifies the submitted password against the bcrypt hash stored in the database using `passlib`.
+3. Queries the `permisos` table (via `roles_permisos`) to build the user's permission list.
+4. Inserts a `LOGIN` record into `logs_acceso`.
+5. Encodes a JWT payload containing `sub` (user ID), `username`, `rol`, and `permisos`, signed with `HS256` using `SECRET_KEY`.
+6. Sets the signed token as an HttpOnly cookie on the response.
+
+On logout, `POST /auth/logout` deletes the cookie from both `path="/"` and `path="/auth"` and immediately overwrites it with an empty value and `max_age=0` to ensure all browsers honour the removal.
+
+<Note>
+  JWT tokens expire after **8 hours (480 minutes)** and the corresponding cookie is set with `httponly=True, samesite="lax", path="/", max_age=28800`. Because the cookie is HttpOnly, client-side JavaScript cannot read or modify it — this protects against cross-site scripting (XSS) token theft. The `samesite="lax"` policy prevents the cookie from being sent in cross-site POST requests, providing a baseline defence against cross-site request forgery (CSRF).
+</Note>

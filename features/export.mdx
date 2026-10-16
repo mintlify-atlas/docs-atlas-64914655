@@ -1,0 +1,96 @@
+---
+title: "Export Customer Data to Formatted Excel Workbook"
+sidebarTitle: "Export"
+description: "Download a fully formatted, multi-sheet XLSX workbook with all customer data — personal info, account status, consumption, and readings — in one click."
+---
+
+The export feature lets CNEL EP staff download a fully formatted XLSX workbook containing every data set for a given customer in a single request. The file is generated on-demand by the backend using `openpyxl` and `pandas`, streamed directly to the browser, and named after the customer code — no temporary files are written to disk.
+
+## API Endpoint
+
+```http
+GET /api/export/excel/{codigo_cliente}
+```
+
+The endpoint is defined in `app/routers/export.py`, protected by the same JWT authentication guard used across all other routes, and returns a `StreamingResponse` with media type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+
+## Excel Workbook Structure
+
+The generated workbook always contains exactly four sheets, in the following order:
+
+<CardGroup cols={2}>
+  <Card title="1. Datos Personales" icon="address-card">
+    A two-column key-value layout listing every personal, meter, and debt field from `ClienteBase`. Column A contains the human-readable label (e.g., "Nombre", "Deuda SAP"); column B contains the corresponding value.
+  </Card>
+  <Card title="2. Estado de Cuenta" icon="table">
+    A tabular sheet with one row per billing event: **Fecha**, **Tipo de evento**, **Código de evento**, **Factura**, **Valor**, **Saldo**.
+  </Card>
+  <Card title="3. Consumos" icon="bolt">
+    A tabular sheet with one row per billing period: **Período**, **Energía activa (kWh)**, **Energía reactiva (kvarh)**, **Días facturados**.
+  </Card>
+  <Card title="4. Lecturas" icon="gauge">
+    A tabular sheet with one row per reading record, spanning all 12 columns: **Código de cliente**, **Medidor**, **Fecha de lectura**, **Lectura anterior**, **Lectura tomada**, **Lectura facturada**, **Consumo calculado (kWh)**, **Código de tipo de lectura**, **Tipo de lectura**, **Código de observación**, **Observación**, **Tipo de registro**.
+  </Card>
+</CardGroup>
+
+All column headers use the human-readable Spanish labels defined in the `HEADER_LABELS` dictionary in `export.py` rather than the raw Python field names.
+
+## Formatting Features
+
+Every sheet (except `Datos Personales`, which has its own fixed-width layout) is processed by the `format_worksheet()` function. The following styles are applied consistently:
+
+| Feature | Detail |
+|---|---|
+| **Header fill** | Dark navy background — `#243B64` solid fill |
+| **Header font** | White, bold, 11pt Aptos; left-aligned, vertically centred, with word wrap |
+| **Header border** | Medium-weight bottom border in `#6D83AC` |
+| **Frozen pane** | Row 1 is frozen at `A2` so headers remain visible while scrolling |
+| **Alternating row shading** | Odd data rows (row index `% 2 == 1`) receive a light-blue fill — `#F1F5FB` |
+| **Row height** | Header row: 30pt; all data rows: 24pt |
+| **Auto-filter** | Enabled on the full data range (`worksheet.dimensions`) |
+| **Column widths** | Auto-sized per column: minimum 16 characters, maximum 42 characters, based on the longest cell value |
+| **Date format** | `dd/mm/yyyy` applied to any cell recognised as a date |
+| **Float format** | `#,##0.00` for floating-point numbers |
+| **Integer format** | `#,##0` for whole numbers |
+| **Saldo column** | Overridden to `0.00` (plain two-decimal format, no thousands separator) |
+| **Excel Table** | `TableStyleMedium2` with row stripes; table name derived from the sheet name with spaces removed |
+| **Grid lines** | Hidden (`showGridLines = False`) for a clean appearance |
+
+For the **Datos Personales** sheet, `format_worksheet()` is called with `key_value=True`, which overrides column widths to fixed values — **34 characters** for the field-name column and **48 characters** for the value column — and right-aligns all value cells.
+
+## Triggering the Export
+
+**From the UI:** Click the export button on any customer page. The browser initiates the download automatically.
+
+**Via the command line:**
+
+```bash
+curl -b "access_token=Bearer <your-token>" \
+  http://localhost:8000/api/export/excel/1313 \
+  --output CNEL_Analytics_1313.xlsx
+```
+
+The downloaded file is named `CNEL_Analytics_{codigo_cliente}.xlsx` (e.g., `CNEL_Analytics_1313.xlsx`).
+
+**Via JavaScript (fetch):**
+
+```javascript
+const response = await fetch('/api/export/excel/1313', {
+  credentials: 'include', // sends the access_token cookie automatically
+});
+const blob = await response.blob();
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = 'CNEL_Analytics_1313.xlsx';
+a.click();
+URL.revokeObjectURL(url);
+```
+
+<Note>
+  The endpoint requires authentication. The JWT must be present either as the `access_token` cookie (set automatically after login) or as an `Authorization: Bearer <token>` request header. Unauthenticated requests receive a `401 Unauthorized` response.
+</Note>
+
+<Warning>
+  The response includes `Cache-Control: no-store`. Do not attempt to cache or proxy the export response — every request must hit the server to generate a fresh workbook reflecting the latest database state. Cached responses may contain stale customer data.
+</Warning>

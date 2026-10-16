@@ -1,0 +1,104 @@
+{
+  "projectType": "saas",
+  "projectName": "CNEL Analytics",
+  "projectDescription": "A full-stack web application built with FastAPI and Jinja2 that enables CNEL EP staff to query, visualize, and export historical electrical consumption data for customers.",
+  "theme": "luma",
+  "primaryColor": "#243B64",
+  "lightColor": "#6D83AC",
+  "darkColor": "#111827",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/databases",
+              "configuration/security"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/client-info",
+              "features/account-status",
+              "features/consumption",
+              "features/readings",
+              "features/export"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "admin/user-management",
+              "admin/roles-permissions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth-overview",
+              "api/login",
+              "api/logout"
+            ]
+          },
+          {
+            "group": "Client Endpoints",
+            "pages": [
+              "api/clients",
+              "api/export"
+            ]
+          },
+          {
+            "group": "Admin Endpoints",
+            "pages": [
+              "api/admin-users"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Customer information lookup by numeric client code (datos personales, medidor, deuda SAP)",
+    "Historical account statement with credit/debit notes and payment agreements (estado de cuenta)",
+    "Historical energy consumption charts filtered by year (consumo activo y reactivo en kWh)",
+    "Historical meter readings with type and observation descriptions (lecturas)",
+    "Excel export of all client data with formatted worksheets via openpyxl + pandas",
+    "JWT-based authentication stored in HttpOnly cookies with role-based access control",
+    "Dual database setup: SQL Server (CNEL cloud data) + PostgreSQL (local users/roles)",
+    "Admin panel for user CRUD with role assignment (Admin-only)"
+  ],
+  "publicApiSurface": [
+    "POST /auth/login — OAuth2 password grant, returns JWT + sets HttpOnly cookie",
+    "POST /auth/logout — clears access_token cookie",
+    "GET /api/clientes/{codigo_cliente} — returns ClienteCompletoResponse (datos_personales, creditos_debitos, convenios, estado_cuenta, consumos, lecturas)",
+    "GET /api/export/excel/{codigo_cliente} — streams XLSX file with multiple formatted sheets",
+    "GET /admin/api/usuarios — list all users (admin only)",
+    "POST /admin/api/usuarios — create user (admin only)",
+    "PUT /admin/api/usuarios/{id} — update user (admin only)",
+    "PUT /admin/api/usuarios/{id}/estado — toggle user active status (admin only)",
+    "DELETE /admin/api/usuarios/{id} — delete user (admin only)",
+    "GET /dashboard — main dashboard view (login_required)",
+    "GET /info-cliente — client info module (login_required)",
+    "GET /estado-cuenta — account status module (login_required)",
+    "GET /consumo — consumption module (login_required)",
+    "GET /lectura — readings module (login_required)",
+    "GET /config — admin configuration panel (admin role required)"
+  ]
+}

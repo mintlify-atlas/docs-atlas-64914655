@@ -1,0 +1,305 @@
+---
+title: "Admin User CRUD Endpoints: Manage CNEL Analytics Accounts"
+sidebarTitle: "Admin Users"
+description: "Create, list, update, toggle activation, and permanently delete CNEL Analytics user accounts. All endpoints require the ADMIN or ADMINISTRADOR role."
+---
+
+The admin user management endpoints live under the `/admin/api/usuarios` prefix and allow administrators to perform full CRUD operations on CNEL Analytics application accounts. Every endpoint in this group validates the caller's role before executing: if the authenticated user's `rol` is not `ADMIN` or `ADMINISTRADOR` (case-insensitive), the request is rejected with HTTP **403** and the detail `"Acceso denegado"`. Unauthenticated requests are rejected before the role check is reached. All endpoints operate against the local application database — not the CNEL SQL Server — so they remain available even when the billing system is offline.
+
+<Warning>
+  Role enforcement on these endpoints is performed by reading the JWT from the request cookie or header and resolving the user from the local database. Ensure that admin accounts themselves use strong passwords and that the `ADMIN` role is granted only to trusted staff.
+</Warning>
+
+---
+
+## List Users
+
+`GET /admin/api/usuarios`
+
+Returns the full list of registered application users, including each user's role assignment. Results are ordered by `id` descending (most recently created first).
+
+**Auth:** Admin only (`ADMIN` or `ADMINISTRADOR` role)
+
+### Response — HTTP 200
+
+An array of user objects. Empty array `[]` if no users exist.
+
+<ResponseField name="id" type="integer">
+  Auto-incremented primary key of the user record.
+</ResponseField>
+<ResponseField name="username" type="string">
+  Unique login username.
+</ResponseField>
+<ResponseField name="email" type="string">
+  Unique email address on file.
+</ResponseField>
+<ResponseField name="nombre_completo" type="string">
+  Full name of the staff member.
+</ResponseField>
+<ResponseField name="cedula_identidad" type="string">
+  National identity document number.
+</ResponseField>
+<ResponseField name="is_active" type="boolean">
+  Whether the account is currently active. Inactive accounts cannot authenticate.
+</ResponseField>
+<ResponseField name="rol_id" type="integer">
+  Foreign key referencing the `roles` table.
+</ResponseField>
+<ResponseField name="rol_nombre" type="string">
+  Resolved role name from the `roles` table (e.g. `"ADMIN"`, `"OPERADOR"`).
+</ResponseField>
+
+### Example
+
+```bash
+curl -b "access_token=Bearer <token>" \
+  http://localhost:8000/admin/api/usuarios
+```
+
+```json
+[
+  {
+    "id": 4,
+    "username": "jlopez",
+    "email": "jlopez@cnel.gob.ec",
+    "nombre_completo": "Juan López",
+    "cedula_identidad": "0923456789",
+    "is_active": true,
+    "rol_id": 2,
+    "rol_nombre": "OPERADOR"
+  },
+  {
+    "id": 1,
+    "username": "admin",
+    "email": "admin@cnel.gob.ec",
+    "nombre_completo": "Administrador del Sistema",
+    "cedula_identidad": "0900000001",
+    "is_active": true,
+    "rol_id": 1,
+    "rol_nombre": "ADMIN"
+  }
+]
+```
+
+---
+
+## Create User
+
+`POST /admin/api/usuarios`
+
+Creates a new application user. The password is hashed with bcrypt before storage — the plain-text value is never persisted. New accounts are created with `is_active = true`.
+
+**Auth:** Admin only
+
+**Content-Type:** `multipart/form-data`
+
+### Form Fields
+
+<ParamField body="username" type="string" required>
+  Unique login username. Must not already exist in the database — a conflict returns HTTP 409.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Unique email address. Must not already exist in the database — a conflict returns HTTP 409.
+</ParamField>
+
+<ParamField body="nombre_completo" type="string" required>
+  Full name of the staff member being registered.
+</ParamField>
+
+<ParamField body="cedula_identidad" type="string" required>
+  National identity document number of the staff member.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Plain-text password. Hashed with bcrypt (scheme: `bcrypt` / `bcrypt_sha256`) before being written to the database.
+</ParamField>
+
+<ParamField body="rol_id" type="integer" required>
+  ID of the role to assign to the new user. Must reference a valid row in the `roles` table.
+</ParamField>
+
+### Response — HTTP 200
+
+```json
+{ "message": "Usuario creado con éxito" }
+```
+
+### Error Responses
+
+| Status | Detail | Cause |
+|--------|--------|-------|
+| `403 Forbidden` | `"Acceso denegado"` | Caller lacks the admin role. |
+| `409 Conflict` | `"No se pudo crear el usuario por un conflicto de datos."` | `username` or `email` already in use (`IntegrityError`). |
+| `503 Service Unavailable` | `"No se pudo crear el usuario por un error de base de datos."` | Unexpected `SQLAlchemyError` during the insert. |
+
+### Example
+
+```bash
+curl -b "access_token=Bearer <token>" \
+  -X POST http://localhost:8000/admin/api/usuarios \
+  -F "username=mperez" \
+  -F "email=mperez@cnel.gob.ec" \
+  -F "nombre_completo=María Pérez" \
+  -F "cedula_identidad=0987654321" \
+  -F "password=SecureP@ss123" \
+  -F "rol_id=2"
+```
+
+---
+
+## Update User
+
+`PUT /admin/api/usuarios/{usuario_id}`
+
+Updates an existing user's profile fields and optionally resets their password. Fields other than `password` are always overwritten with the submitted values.
+
+**Auth:** Admin only
+
+**Content-Type:** `multipart/form-data`
+
+### Path Parameters
+
+<ParamField path="usuario_id" type="integer" required>
+  Primary key of the user to update. Returns HTTP 404 if no user with this ID exists.
+</ParamField>
+
+### Form Fields
+
+<ParamField body="username" type="string" required>
+  New or unchanged username. Triggers HTTP 409 if it conflicts with another user's record.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  New or unchanged email address. Triggers HTTP 409 if it conflicts with another user's record.
+</ParamField>
+
+<ParamField body="nombre_completo" type="string" required>
+  Updated full name.
+</ParamField>
+
+<ParamField body="cedula_identidad" type="string" required>
+  Updated identity document number.
+</ParamField>
+
+<ParamField body="password" type="string">
+  Optional. When provided (non-empty), the value is hashed and the stored password is replaced. When omitted or empty, the existing password hash is left unchanged.
+</ParamField>
+
+<ParamField body="rol_id" type="integer" required>
+  ID of the role to assign. Replaces the user's current role.
+</ParamField>
+
+### Response — HTTP 200
+
+```json
+{ "message": "Usuario actualizado con éxito" }
+```
+
+### Error Responses
+
+| Status | Detail | Cause |
+|--------|--------|-------|
+| `403 Forbidden` | `"Acceso denegado"` | Caller lacks the admin role. |
+| `404 Not Found` | `"El usuario no existe."` | No user found for the given `usuario_id`. |
+| `409 Conflict` | `"No se pudo actualizar el usuario por un conflicto de datos."` | Username or email already belongs to a different user. |
+| `503 Service Unavailable` | `"No se pudo actualizar el usuario por un error de base de datos."` | Unexpected `SQLAlchemyError` during the update. |
+
+### Example
+
+```bash
+curl -b "access_token=Bearer <token>" \
+  -X PUT http://localhost:8000/admin/api/usuarios/4 \
+  -F "username=jlopez" \
+  -F "email=jlopez.nuevo@cnel.gob.ec" \
+  -F "nombre_completo=Juan López Vega" \
+  -F "cedula_identidad=0923456789" \
+  -F "rol_id=2"
+```
+
+<Note>
+  Omitting the `password` field entirely (not sending the key in the form) is sufficient to preserve the user's existing password. You do not need to send an empty string.
+</Note>
+
+---
+
+## Toggle Active Status
+
+`PUT /admin/api/usuarios/{usuario_id}/estado`
+
+Flips the `is_active` flag of the specified user to its logical opposite using a SQL `NOT is_active` expression. No request body is required. Use this endpoint to suspend or reactivate accounts without deleting them.
+
+**Auth:** Admin only
+
+### Path Parameters
+
+<ParamField path="usuario_id" type="integer" required>
+  Primary key of the user whose active status should be toggled.
+</ParamField>
+
+### Response — HTTP 200
+
+```json
+{ "message": "Estado actualizado" }
+```
+
+<Note>
+  This endpoint does not verify that the `usuario_id` exists before executing the update. If the ID does not match any row, the operation completes silently with no rows affected and still returns HTTP 200.
+</Note>
+
+### Example
+
+```bash
+# Suspend or reactivate user with ID 4
+curl -b "access_token=Bearer <token>" \
+  -X PUT http://localhost:8000/admin/api/usuarios/4/estado
+```
+
+---
+
+## Delete User
+
+`DELETE /admin/api/usuarios/{usuario_id}`
+
+Permanently removes the specified user record from the database.
+
+**Auth:** Admin only
+
+### Path Parameters
+
+<ParamField path="usuario_id" type="integer" required>
+  Primary key of the user to delete.
+</ParamField>
+
+### Response — HTTP 200
+
+```json
+{ "message": "Usuario eliminado" }
+```
+
+<Warning>
+  Deletion is permanent. The `DELETE` statement issues a hard delete directly against the `usuarios` table — there is no soft-delete flag, no recycle bin, and no recovery mechanism. Verify the correct `usuario_id` before calling this endpoint.
+</Warning>
+
+### Example
+
+```bash
+curl -b "access_token=Bearer <token>" \
+  -X DELETE http://localhost:8000/admin/api/usuarios/4
+```
+
+---
+
+## Role Values Reference
+
+The following role names are recognized by the admin middleware's authorization check:
+
+| Role name | Access level |
+|-----------|-------------|
+| `ADMIN` | Full admin access to all endpoints in this group |
+| `ADMINISTRADOR` | Treated identically to `ADMIN` |
+| Any other value | Rejected with HTTP 403 |
+
+<Tip>
+  To retrieve the current list of available `rol_id` values and their names, query the `roles` table directly or inspect the HTML admin page at `GET /admin/usuarios`, which populates a role `<select>` from `SELECT id, nombre FROM roles ORDER BY nombre`.
+</Tip>

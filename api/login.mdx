@@ -1,0 +1,120 @@
+---
+title: "POST /auth/login — Authenticate and Obtain JWT Token"
+sidebarTitle: "POST /auth/login"
+description: "Exchange a username and password for a signed JWT. The token is returned in the response body and written to an HttpOnly cookie valid for 8 hours."
+---
+
+The login endpoint accepts an OAuth2 password-grant form, validates the supplied credentials against the user database, and — on success — issues a signed HS256 JWT. The token is both returned in the JSON response body (for programmatic clients) and set as an `access_token` HttpOnly cookie (for browser-based sessions). A row is also written to the `logs_acceso` audit table on every successful authentication.
+
+**Endpoint:** `POST /auth/login`
+
+**Content-Type:** `application/x-www-form-urlencoded` (OAuth2PasswordRequestForm)
+
+**Auth required:** No
+
+---
+
+## Request Parameters
+
+<ParamField body="username" type="string" required>
+  The account's username **or** email address. The server queries both `usuarios.username` and `usuarios.email`, so either value is accepted.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Plaintext password for the account. Transmitted over HTTPS and verified server-side against the stored bcrypt hash. The raw value is never persisted.
+</ParamField>
+
+---
+
+## Success Response
+
+**HTTP 200 OK**
+
+On success the server returns a `TokenResponse` object and simultaneously sets an `access_token` HttpOnly cookie with an 8-hour (`max_age=28800`) TTL.
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user": {
+    "id": 42,
+    "username": "jdoe",
+    "nombre": "Juan Doe",
+    "primer_nombre": "Juan",
+    "rol": "OPERADOR",
+    "permisos": ["read_clients", "export_excel"]
+  }
+}
+```
+
+<ResponseField name="access_token" type="string">
+  Signed HS256 JWT. Use this value as a `Bearer` token in the `Authorization` header, or rely on the cookie for browser requests.
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Always `"bearer"`.
+</ResponseField>
+
+<ResponseField name="user.id" type="integer">
+  Primary-key ID of the authenticated user in the `usuarios` table.
+</ResponseField>
+
+<ResponseField name="user.username" type="string">
+  Login username of the authenticated user.
+</ResponseField>
+
+<ResponseField name="user.nombre" type="string">
+  Full display name (`nombre_completo`) of the authenticated user.
+</ResponseField>
+
+<ResponseField name="user.primer_nombre" type="string">
+  First word of `nombre_completo`, extracted server-side. Useful for greeting strings such as *"Hola, Juan"*.
+</ResponseField>
+
+<ResponseField name="user.rol" type="string">
+  Name of the role assigned to the user (e.g. `"OPERADOR"`, `"ADMINISTRADOR"`).
+</ResponseField>
+
+<ResponseField name="user.permisos" type="array of strings">
+  List of permission codes inherited from the user's role (e.g. `["read_clients", "export_excel"]`). These codes are also embedded in the JWT payload under the `permisos` claim.
+</ResponseField>
+
+<Note>
+  In addition to the JSON response, a successful login writes the `access_token` as an HttpOnly cookie (`samesite=lax`, `path=/`, `max_age=28800`). Browser clients do not need to handle the token manually — it will be sent automatically on all subsequent same-origin requests.
+</Note>
+
+---
+
+## Error Responses
+
+| Status | `detail`                              | Cause                                                              |
+|--------|---------------------------------------|--------------------------------------------------------------------|
+| `401`  | `"Usuario o contraseña incorrectos"`  | No user found matching the supplied username/email, or the bcrypt verification failed. |
+| `403`  | `"El usuario se encuentra desactivado"` | Credentials are valid but `usuarios.is_active` is `false`.       |
+| `500`  | `"Error en el servidor: <detail>"`    | An unexpected exception occurred during authentication. The inner error message is included in `detail`. |
+
+---
+
+## Example
+
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=jdoe&password=mysecret"
+```
+
+**Response headers (excerpt):**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Set-Cookie: access_token=Bearer eyJhbGci...; Path=/; Max-Age=28800; HttpOnly; SameSite=lax
+```
+
+---
+
+## Audit Logging
+
+<Note>
+  Every successful login inserts a row into the `logs_acceso` table with `accion='LOGIN'` and `detalles='Inicio de sesión exitoso'`. Failed attempts (wrong password or inactive account) do **not** produce a log entry.
+</Note>

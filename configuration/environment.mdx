@@ -1,0 +1,133 @@
+---
+title: "Configure CNEL Analytics Environment Variables"
+sidebarTitle: "Environment"
+description: "Reference for every environment variable CNEL Analytics reads at startup, covering JWT security, SQL Server, and PostgreSQL connection settings."
+---
+
+CNEL Analytics reads all runtime configuration from a `.env` file placed in the project root. At startup, `python-dotenv` loads the file and the `Settings` class in `backend/app/core/config.py` reads each value with `os.getenv`, applying defaults where appropriate. No configuration is hard-coded — if a required variable is missing or invalid, the application raises an error before accepting any requests.
+
+## How settings are loaded
+
+`config.py` calls `load_dotenv()` at module level, which populates the environment from `.env` before any `os.getenv` call executes. The single `Settings` class instance (`settings`) is then imported across the application:
+
+```python backend/app/core/config.py
+import os
+from urllib.parse import quote_plus
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Settings:
+    PROJECT_NAME: str = "CNEL Analytics"
+    PROJECT_VERSION: str = "1.0.0"
+
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
+    if len(SECRET_KEY) < 32:
+        raise RuntimeError(
+            "SECRET_KEY must be configured with a random value of at least 32 characters."
+        )
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
+    ...
+
+settings = Settings()
+```
+
+## Environment variable reference
+
+### Security
+
+<ParamField path="SECRET_KEY" type="string" required>
+  Random secret used to sign and verify JWT tokens with HMAC-SHA256. Must be at
+  least 32 characters long. If unset or shorter than 32 characters, the
+  application raises `RuntimeError` at startup and refuses to start.
+
+  Generate a safe value with:
+  ```bash
+  python -c "import secrets; print(secrets.token_urlsafe(48))"
+  ```
+</ParamField>
+
+### Cloud database (SQL Server — CNEL EP data)
+
+<ParamField path="CLOUD_DB_SERVER" type="string" required>
+  Hostname or IP address of the SQL Server instance hosting the CNEL EP
+  historical data. Fallback: `DB_SERVER`.
+</ParamField>
+
+<ParamField path="CLOUD_DB_NAME" type="string" required>
+  Name of the SQL Server database. Fallback: `DB_NAME`.
+</ParamField>
+
+<ParamField path="CLOUD_DB_USER" type="string" required>
+  SQL Server login username. The account should have read-only access.
+  Fallback: `DB_USER`.
+</ParamField>
+
+<ParamField path="CLOUD_DB_PASSWORD" type="string" required>
+  Password for the SQL Server login. Fallback: `DB_PASSWORD`.
+</ParamField>
+
+<ParamField path="CLOUD_DB_DRIVER" type="string" default="ODBC Driver 17 for SQL Server">
+  ODBC driver name exactly as it appears in your driver registry. Change this
+  only if you have installed a different ODBC driver version on the host.
+  Fallback: `DB_DRIVER`.
+</ParamField>
+
+### Local database (PostgreSQL — users and roles)
+
+<ParamField path="LOCAL_DB_HOST" type="string" default="localhost">
+  Hostname or IP address of the PostgreSQL server that stores application users,
+  roles, permissions, and access logs.
+</ParamField>
+
+<ParamField path="LOCAL_DB_PORT" type="string" default="5432">
+  TCP port the PostgreSQL server listens on.
+</ParamField>
+
+<ParamField path="LOCAL_DB_NAME" type="string" required>
+  Name of the PostgreSQL database.
+</ParamField>
+
+<ParamField path="LOCAL_DB_USER" type="string" required>
+  PostgreSQL role (username) used to connect.
+</ParamField>
+
+<ParamField path="LOCAL_DB_PASSWORD" type="string" required>
+  Password for the PostgreSQL role.
+</ParamField>
+
+## Complete `.env` example
+
+Copy the block below to your project root, then fill in the real values for your environment:
+
+```ini .env
+SECRET_KEY=your-random-secret-key-at-least-32-characters-long
+
+# Cloud SQL Server (CNEL EP)
+CLOUD_DB_SERVER=sqlserver.example.com
+CLOUD_DB_NAME=CNEL_DB
+CLOUD_DB_USER=cnel_readonly
+CLOUD_DB_PASSWORD=your-sql-server-password
+CLOUD_DB_DRIVER=ODBC Driver 17 for SQL Server
+
+# Local PostgreSQL (users and roles)
+LOCAL_DB_HOST=localhost
+LOCAL_DB_PORT=5432
+LOCAL_DB_NAME=cnel_local
+LOCAL_DB_USER=postgres
+LOCAL_DB_PASSWORD=your-postgres-password
+```
+
+<Warning>
+  Never commit `.env` to version control. Add it to `.gitignore` immediately
+  after creating it. The file contains database credentials and the JWT signing
+  key — leaking any of these values compromises the entire system.
+</Warning>
+
+<Note>
+  The legacy single-prefix variables (`DB_SERVER`, `DB_NAME`, `DB_USER`,
+  `DB_PASSWORD`, `DB_DRIVER`) are supported as fallbacks for backwards
+  compatibility. The `CLOUD_DB_*` variables take precedence when both are
+  present. New deployments should use the `CLOUD_DB_*` names.
+</Note>

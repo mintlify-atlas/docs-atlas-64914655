@@ -1,0 +1,69 @@
+---
+title: "POST /auth/logout — End Session and Clear Cookie"
+sidebarTitle: "POST /auth/logout"
+description: "Terminate a browser session by clearing the access_token HttpOnly cookie. Stateless — no server-side token invalidation is performed."
+---
+
+The logout endpoint terminates a browser session by expiring and deleting the `access_token` cookie that was set at login. Because CNEL Analytics uses stateless JWTs, no server-side revocation takes place — the operation is purely cookie hygiene. Any client that stored the raw token outside the cookie (e.g. in `localStorage`) is responsible for discarding it.
+
+**Endpoint:** `POST /auth/logout`
+
+**Auth required:** No — the endpoint does not validate a token; it simply clears the cookie regardless of its contents.
+
+---
+
+## Behavior
+
+The server performs three cookie operations in a single response to ensure the cookie is removed across all browser implementations:
+
+1. **`delete_cookie` at `path=/`** — issues a `Set-Cookie` header that removes the `access_token` cookie scoped to the root path, which is where it was originally set by `/auth/login`.
+2. **`delete_cookie` at `path=/auth`** — issues a second removal header scoped to the `/auth` path prefix, covering any legacy cookies that may have been set at a narrower scope.
+3. **`set_cookie` with `max_age=0` at `path=/`** — writes an empty `access_token` cookie with an immediate expiry (`Max-Age=0`), forcing browsers that did not honour the `delete_cookie` directives to expire it right away.
+
+<Note>
+  After logout, the browser will no longer send the `access_token` cookie on future requests. However, JWT tokens are **not** invalidated server-side. If the token was also stored in `localStorage` or a JavaScript variable, the client application must clear that value explicitly — an old token could still be used to call protected endpoints until its `exp` claim lapses.
+</Note>
+
+---
+
+## Success Response
+
+**HTTP 200 OK**
+
+```json
+{ "message": "Sesión cerrada correctamente" }
+```
+
+| Field     | Type   | Description                          |
+|-----------|--------|--------------------------------------|
+| `message` | string | Human-readable confirmation string.  |
+
+**Response headers (excerpt):**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Set-Cookie: access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=lax
+Set-Cookie: access_token=; Path=/auth; HttpOnly; SameSite=lax
+```
+
+---
+
+## Example
+
+```bash
+# Pass the cookies file so curl sends the current access_token cookie,
+# and update it (-c) so the cleared cookie is written back to the file.
+curl -X POST http://localhost:8000/auth/logout \
+  -b cookies.txt -c cookies.txt
+```
+
+After this command, `cookies.txt` will contain an expired `access_token` entry and the cookie will not be sent on future requests.
+
+---
+
+## Security Notes
+
+<Warning>
+  Logout does **not** invalidate the JWT cryptographically. Anyone who captured the raw token before logout can continue to use it until the 8-hour `exp` window closes. For high-security environments, consider implementing a server-side denylist keyed on the `jti` claim.
+</Warning>

@@ -1,0 +1,99 @@
+---
+title: "Authentication API: JWT Tokens and Cookie Sessions"
+sidebarTitle: "Auth Overview"
+description: "How CNEL Analytics authenticates users via OAuth2 password grant, issues HS256 JWT tokens, and delivers them as HttpOnly cookies or Bearer headers."
+---
+
+CNEL Analytics uses OAuth2 password-grant authentication backed by signed JWT tokens (HS256). When a user submits valid credentials to `POST /auth/login`, the server generates a token containing the user's identity, role, and permissions. That token is simultaneously stored in an HttpOnly browser cookie for seamless web navigation and returned in the JSON response body for programmatic API consumers.
+
+## Token Delivery
+
+There are two supported ways to present a token on protected endpoints.
+
+### Cookie-based (browser)
+
+On a successful login the server writes an `access_token` cookie with the following attributes:
+
+| Attribute   | Value      |
+|-------------|------------|
+| `httponly`  | `True`     |
+| `samesite`  | `lax`      |
+| `path`      | `/`        |
+| `max_age`   | `28800` s  |
+
+Because the cookie is scoped to `path=/`, it is sent automatically by the browser on every request to the same origin. No client-side JavaScript is needed to attach it.
+
+### Header-based (API clients)
+
+Pass the raw token (not the `Bearer <token>` cookie value) in the `Authorization` header on each request:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+<Tip>
+  The `Authorization` header takes precedence over the cookie. When both are present on the same request, the header value is used.
+</Tip>
+
+## Token Lifetime
+
+Tokens are valid for **480 minutes (8 hours)** from the moment they are issued, as set by `ACCESS_TOKEN_EXPIRE_MINUTES` in `app/core/config.py`. Once a token expires the server rejects it with HTTP 401.
+
+<Warning>
+  CNEL Analytics uses **stateless JWTs** — there is no server-side revocation list. A token remains cryptographically valid until its `exp` timestamp passes, even after the user logs out. Always clear tokens from `localStorage` on logout.
+</Warning>
+
+## Token Payload
+
+Every JWT issued by this service carries the following claims:
+
+| Claim        | Type              | Description                                      |
+|--------------|-------------------|--------------------------------------------------|
+| `sub`        | string            | Numeric user ID (serialised as a string)         |
+| `username`   | string            | Login username of the authenticated user         |
+| `rol`        | string            | Name of the role assigned to the user            |
+| `permisos`   | array of strings  | Permission codes granted to the user's role      |
+| `exp`        | integer           | Unix timestamp (UTC) at which the token expires  |
+
+Example decoded payload:
+
+```json
+{
+  "sub": "42",
+  "username": "jdoe",
+  "rol": "OPERADOR",
+  "permisos": ["read_clients", "export_excel"],
+  "exp": 1717200000
+}
+```
+
+## Error Responses
+
+All authentication failures return a JSON body of the form `{ "detail": "<message>" }`.
+
+| Status | `detail`                                         | When it occurs                                          |
+|--------|--------------------------------------------------|---------------------------------------------------------|
+| `401`  | `"No autenticado. Token de acceso no proporcionado."` | Request arrived with no cookie and no `Authorization` header |
+| `401`  | `"Token inválido."`                              | Token decoded successfully but the `sub` claim is missing |
+| `401`  | `"El token ha expirado."`                        | Token signature is valid but `exp` is in the past       |
+| `401`  | `"No se pudo validar las credenciales."`         | Token cannot be decoded (malformed or wrong secret)     |
+| `401`  | `"Usuario no encontrado o inactivo."`            | `sub` does not match an active user in the database     |
+| `403`  | `"El usuario se encuentra desactivado"`          | Credentials are correct but the account is disabled     |
+
+## Quick Example
+
+```bash
+# 1. Login and save the cookie to a file
+curl -s -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=jdoe&password=secret" \
+  -c cookies.txt
+
+# 2. Use the cookie automatically on subsequent requests
+curl -b cookies.txt http://localhost:8000/api/clientes/1313
+
+# 3. Alternatively, copy the access_token from the JSON response
+#    and pass it as a Bearer header
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8000/api/clientes/1313
+```

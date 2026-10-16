@@ -1,0 +1,158 @@
+---
+title: "User Management: Create, Edit, and Deactivate Accounts"
+sidebarTitle: "User Management"
+description: "Manage CNEL Analytics user accounts from the admin panel — create, edit, toggle active status, and delete users via a role-protected CRUD interface."
+---
+
+The User Management panel gives administrators a complete CRUD interface for every account in CNEL Analytics. It is accessible at the `/config` route and is protected by a role guard that permits only users whose role is `ADMIN` or `ADMINISTRADOR`. All data is rendered in the `admin_usuarios.html` Jinja2 template and backed by a set of REST endpoints under the `/admin/api/usuarios` prefix.
+
+## Accessing the Panel
+
+Navigate to **Configuration** in the application sidebar. The menu item is rendered only for admin users; all other roles see the item hidden. Attempting to reach `/config` without an admin role — whether by direct URL or expired session — results in an HTTP 303 redirect to `/` (the login page).
+
+<Note>
+  Non-admin users are silently redirected to `/` rather than receiving a 403 error, so the panel's existence is not exposed to unauthorized sessions.
+</Note>
+
+## User Fields
+
+Every user record stored in the `usuarios` table contains the following fields:
+
+| Field              | Type      | Constraints     | Description                                                                                             |
+| ------------------ | --------- | --------------- | ------------------------------------------------------------------------------------------------------- |
+| `username`         | `string`  | unique, required | Login identifier used alongside email at `/auth/login`.                                                |
+| `email`            | `string`  | unique, required | Email address. Also accepted as the login credential in place of `username`.                           |
+| `nombre_completo`  | `string`  | required        | Full name. The first space-delimited token is extracted as `primer_nombre` for the in-app greeting.    |
+| `cedula_identidad` | `string`  | required        | Ecuadorian national ID (10 digits). The front-end validates the province code and check digit locally. |
+| `password`         | `string`  | required        | Stored as a bcrypt hash. The `passlib` context accepts both `bcrypt` and `bcrypt_sha256` schemes.      |
+| `rol_id`           | `integer` | FK → `roles.id` | Determines the role — and therefore the permissions — assigned to the user.                            |
+| `is_active`        | `boolean` | default `true`  | When `false` the user cannot log in and receives HTTP 403 from the auth endpoint.                      |
+
+## CRUD Operations
+
+<Accordion title="Create User — POST /admin/api/usuarios">
+  Submit the registration form to create a new account. All fields are sent as `multipart/form-data`. The password is hashed with bcrypt before it is written to the database; the plain-text value is never persisted.
+
+  **Request fields** (all required for creation):
+
+  ```
+  username         string
+  email            string
+  nombre_completo  string
+  cedula_identidad string   (10-digit Ecuadorian national ID)
+  password         string
+  rol_id           integer
+  ```
+
+  **Success response — HTTP 200:**
+
+  ```json
+  { "message": "Usuario creado con éxito" }
+  ```
+
+  **Error responses:**
+
+  | Status | Detail                                                                   |
+  | ------ | ------------------------------------------------------------------------ |
+  | 403    | `"Acceso denegado"` — caller is not an admin.                            |
+  | 409    | `"No se pudo crear el usuario por un conflicto de datos."` — duplicate `username` or `email`. |
+  | 503    | `"No se pudo crear el usuario por un error de base de datos."` — unexpected DB error.         |
+
+  The front-end (`admin_usuarios.js`) additionally validates the Ecuadorian cédula algorithm (province code 01–24, third digit 0–5, Luhn-style check digit) before sending the request. Invalid cédulas are rejected client-side before the form is submitted.
+</Accordion>
+
+<Accordion title="List Users — GET /admin/api/usuarios">
+  Returns all user records joined with their role name, ordered by `id DESC`.
+
+  **Success response — HTTP 200:**
+
+  ```json
+  [
+    {
+      "id": 7,
+      "username": "mlopez",
+      "email": "mlopez@cnel.gob.ec",
+      "nombre_completo": "Marlene López",
+      "cedula_identidad": "1714453527",
+      "is_active": true,
+      "rol_id": 2,
+      "rol_nombre": "OPERADOR"
+    }
+  ]
+  ```
+
+  The table body (`#usuariosTableBody`) is populated dynamically by `cargarUsuarios()` in `admin_usuarios.js` on page load. All values are HTML-escaped with `escaparHtml()` before being inserted into the DOM to prevent XSS.
+</Accordion>
+
+<Accordion title="Edit User — PUT /admin/api/usuarios/{id}">
+  Updates an existing user record. Fields are sent as `multipart/form-data`, identical to creation. Password handling is the key difference: if the `password` field is **omitted or empty**, the stored hash is left unchanged; if a new value is provided it is re-hashed before being written.
+
+  **Path parameter:**
+
+  | Parameter | Type    | Description            |
+  | --------- | ------- | ---------------------- |
+  | `id`      | integer | Primary key of the user to update. |
+
+  **Request fields:**
+
+  ```
+  username         string   (required)
+  email            string   (required)
+  nombre_completo  string   (required)
+  cedula_identidad string   (required)
+  password         string   (optional — omit to keep existing password)
+  rol_id           integer  (required)
+  ```
+
+  **Success response — HTTP 200:**
+
+  ```json
+  { "message": "Usuario actualizado con éxito" }
+  ```
+
+  Returns HTTP 404 if the `id` does not match any record, and HTTP 409 on a unique-constraint conflict (e.g., assigning an already-taken `username`).
+</Accordion>
+
+<Accordion title="Toggle Active Status — PUT /admin/api/usuarios/{id}/estado">
+  Flips the `is_active` flag for the specified user using a single SQL `NOT` expression:
+
+  ```sql
+  UPDATE usuarios SET is_active = NOT is_active WHERE id = :id
+  ```
+
+  The front-end renders a toggle switch (`<input type="checkbox">`) in the **ACTIVAR/DESACTIVAR** column; any change fires `toggleEstado(id)` via the `onchange` handler, which calls this endpoint and then reloads the user list.
+
+  **Success response — HTTP 200:**
+
+  ```json
+  { "message": "Estado actualizado" }
+  ```
+
+  A user whose `is_active` is set to `false` will receive HTTP 403 on their next login attempt with the message `"El usuario se encuentra desactivado"`.
+</Accordion>
+
+<Accordion title="Delete User — DELETE /admin/api/usuarios/{id}">
+  Permanently removes the user record from the database. This action **cannot be undone**.
+
+  The front-end shows a SweetAlert2 confirmation dialog before sending the request:
+
+  > *"Se eliminará a 'Marlene López'. Esta acción no se puede deshacer."*
+
+  **Success response — HTTP 200:**
+
+  ```json
+  { "message": "Usuario eliminado" }
+  ```
+
+  After a successful delete the user list is automatically refreshed by calling `cargarUsuarios()`.
+</Accordion>
+
+---
+
+<Warning>
+  Only users with a role of `ADMIN` or `ADMINISTRADOR` (comparison is case-insensitive via `.upper()`) can access any endpoint under `/admin/api/usuarios`. All other authenticated requests receive **HTTP 403 — Acceso denegado**. Unauthenticated requests to the HTML page are redirected to `/` with HTTP 303.
+</Warning>
+
+<Note>
+  Every successful login is recorded in the `logs_acceso` table with the columns `usuario_id`, `accion = 'LOGIN'`, `detalles = 'Inicio de sesión exitoso'`, and an auto-generated timestamp. These records can be used to audit access history per user.
+</Note>

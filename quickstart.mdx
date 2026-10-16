@@ -1,47 +1,121 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with CNEL Analytics"
+sidebarTitle: "Quickstart"
+description: "Clone the repo, configure your .env file, and have CNEL Analytics running locally against real CNEL EP data in under ten minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This guide walks you through setting up CNEL Analytics on a local machine from scratch. By the end you will have a fully functional instance of the application running at `http://localhost:8000`, connected to both the CNEL EP SQL Server cloud database and a local PostgreSQL database for user management.
 
 ## Prerequisites
 
-Before you begin, you must have:
+<Note>
+  Before starting, make sure the following are available on your machine:
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+  - **Python 3.10 or later** — required for all backend dependencies
+  - **ODBC Driver 17 for SQL Server** — required by pyodbc to connect to the CNEL EP cloud database ([Microsoft install guide](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server))
+  - **Access credentials for the CNEL EP SQL Server instance** — server address, database name, username, and password provided by your DBA
+  - **A running PostgreSQL instance** — local or remote, used to store users, roles, and access logs
+</Note>
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository">
+    Clone the project from GitHub and navigate into the project root directory.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/HectorRomero18/CNEL-ANALITYCS.git
+    cd CNEL-ANALITYCS
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Install dependencies">
+    Install all Python dependencies from the pinned `requirements.txt`. Using a virtual environment is strongly recommended.
 
     ```bash
-    your-cli init
+    python -m venv .venv
+    source .venv/bin/activate      # macOS / Linux
+    # .venv\Scripts\activate       # Windows
+    pip install -r requirements.txt
     ```
+
+    This installs FastAPI, SQLAlchemy, Jinja2, PyJWT, psycopg2, pyodbc, pandas, openpyxl, uvicorn, and all their pinned transitive dependencies.
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Configure the environment">
+    Create a `.env` file in the project root. This file must never be committed to version control — it is already listed in `.gitignore`.
 
     ```bash
-    your-cli start
+    # Generate a secure SECRET_KEY first:
+    python -c "import secrets; print(secrets.token_urlsafe(48))"
     ```
+
+    Then create the `.env` file with the following variables, replacing every placeholder with your actual values:
+
+    ```ini
+    # ── Security ──────────────────────────────────────────────────────────
+    SECRET_KEY=your-generated-secret-key-here
+
+    # ── CNEL EP Cloud Database (SQL Server, read-only) ────────────────────
+    CLOUD_DB_SERVER=your.sqlserver.host
+    CLOUD_DB_NAME=CNEL_DB
+    CLOUD_DB_USER=your_db_user
+    CLOUD_DB_PASSWORD=your_db_password
+    CLOUD_DB_DRIVER=ODBC Driver 17 for SQL Server
+
+    # ── Local Database (PostgreSQL, read-write) ───────────────────────────
+    LOCAL_DB_HOST=localhost
+    LOCAL_DB_PORT=5432
+    LOCAL_DB_NAME=cnel_local
+    LOCAL_DB_USER=postgres
+    LOCAL_DB_PASSWORD=your_pg_password
+    ```
+
+    `SECRET_KEY` signs and validates every JWT token. `CLOUD_DB_DRIVER` must match the exact driver name returned by your ODBC installation — verify it with `odbcinst -q -d` on Linux or the ODBC Data Sources manager on Windows.
+  </Step>
+
+  <Step title="Start the development server">
+    From the project root, launch the application with uvicorn. The `--reload` flag enables automatic restarts on code changes.
+
+    ```bash
+    uvicorn backend.main:app --reload
+    ```
+
+    Once started you will see output similar to:
+
+    ```
+    INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+    INFO:     Started reloader process using WatchFiles
+    INFO:     Started server process
+    INFO:     Waiting for application startup.
+    INFO:     Application startup complete.
+    ```
+
+    The application is now available at **http://localhost:8000**. Both the Jinja2 frontend and all `/api/*` routes are served from this single process.
+  </Step>
+
+  <Step title="Log in">
+    Open **http://localhost:8000** in your browser. If no active session is detected you will be shown the login page. Enter a valid staff username and password.
+
+    On successful authentication the server calls `POST /auth/login`, verifies the bcrypt password hash against the PostgreSQL `usuarios` table, and issues a signed JWT token. That token is written directly into an HttpOnly cookie named `access_token` — you do not need to copy or store it manually. All subsequent requests to protected routes automatically include the cookie, and the `login_required` decorator on each view validates it transparently before rendering any page.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+<Warning>
+  `SECRET_KEY` must be at least 32 characters long — the application will raise a `RuntimeError` at startup and refuse to start if this requirement is not met. Changing `SECRET_KEY` after deployment immediately invalidates all existing JWT tokens, forcing every user to log in again.
+</Warning>
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## What's Next
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables Reference" icon="sliders" href="/configuration/environment">
+    Full reference for every supported `.env` variable, their defaults, and validation rules enforced at startup.
+  </Card>
+  <Card title="Database Configuration" icon="database" href="/configuration/databases">
+    Details on how the dual-engine SQLAlchemy setup works, connection pooling behaviour, and how to verify connectivity to both databases.
+  </Card>
+  <Card title="Client Information Feature" icon="user" href="/features/client-info">
+    Learn how to search for a customer, what data fields are returned from the CNEL EP cloud database, and how to navigate the dashboard views.
+  </Card>
+  <Card title="Authentication API Overview" icon="lock" href="/api/auth-overview">
+    Explore the `POST /auth/login` and `POST /auth/logout` endpoints, token structure, cookie attributes, and how to call protected API routes programmatically.
+  </Card>
+</CardGroup>

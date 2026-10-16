@@ -1,0 +1,52 @@
+---
+title: "CNEL Analytics: Historical Query System for CNEL EP Staff"
+sidebarTitle: "Introduction"
+description: "CNEL Analytics gives CNEL EP staff instant access to historical electrical customer data — queries, visualizations, and Excel exports in one secure web app."
+---
+
+CNEL Analytics is an internal web application built for CNEL EP staff who need fast, reliable access to historical electrical customer data. Rather than navigating raw database tools or waiting on manual reports, staff members can search any customer by code and immediately retrieve personal information, account status, consumption history, meter readings, active payment agreements, and credit/debit notes — all from a single browser-based interface. The application runs as a single FastAPI process that serves both a JSON API and server-rendered Jinja2 HTML pages, secured with JWT authentication stored in HttpOnly cookies.
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Client Information" icon="user" href="/features/client-info">
+    Look up any CNEL EP customer by their numeric code and retrieve personal data, account details, and associated technical records pulled directly from the CNEL EP cloud database.
+  </Card>
+  <Card title="Account Status" icon="file-invoice-dollar" href="/features/account-status">
+    View a customer's current account balance, outstanding invoices, credit notes, and debit notes aggregated from the FAHISDEU and FAHISCRE tables in the SQL Server instance.
+  </Card>
+  <Card title="Consumption History" icon="chart-line" href="/features/consumption">
+    Explore month-by-month historical electricity consumption records sourced from the FAHISCON table, with visual charts rendered in the browser for quick trend analysis.
+  </Card>
+  <Card title="Meter Readings" icon="gauge" href="/features/readings">
+    Access raw meter reading sequences from the FAHISLEC table, allowing staff to verify reading accuracy and trace anomalies back to specific billing cycles.
+  </Card>
+  <Card title="Excel Export" icon="file-excel" href="/features/export">
+    Export any customer's full data set — personal info, account status, consumption, and readings — to a formatted `.xlsx` file generated server-side with pandas and openpyxl.
+  </Card>
+  <Card title="User Management" icon="users-gear" href="/admin/user-management">
+    Administrators can create, activate, deactivate, and assign roles to staff accounts. All access events are recorded in the `logs_acceso` table of the local PostgreSQL database.
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+| Component | Library / Version |
+|---|---|
+| Web framework | FastAPI 0.141.1 |
+| ORM | SQLAlchemy 2.1.1 |
+| Template engine | Jinja2 3.1.6 |
+| Authentication | PyJWT 2.15.1 |
+| Password hashing | passlib 1.7.4 + bcrypt 4.0.1 |
+| PostgreSQL driver | psycopg2 2.9.13 |
+| SQL Server driver | pyodbc 5.3.0 |
+| Excel generation | openpyxl 3.1.5 + pandas 3.0.6 |
+| ASGI server | uvicorn 0.54.0 |
+| Data validation | pydantic 2.13.5 |
+| Environment config | python-dotenv 1.2.3 |
+
+## License
+
+CNEL Analytics is released under the **GNU General Public License v3.0 (GPL-3.0)**. You are free to inspect, modify, and redistribute the source code under the terms of that license.
+
+Source code is available at [github.com/HectorRomero18/CNEL-ANALITYCS](https://github.com/HectorRomero18/CNEL-ANALITYCS).

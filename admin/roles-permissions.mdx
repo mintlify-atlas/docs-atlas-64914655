@@ -1,0 +1,127 @@
+---
+title: "Roles and Permissions: Access Control in CNEL Analytics"
+sidebarTitle: "Roles & Permissions"
+description: "Understand how CNEL Analytics implements role-based access control — from the database schema to JWT token payload and admin-only route guards."
+---
+
+CNEL Analytics uses a role-based access control (RBAC) model to govern what each user can see and do within the application. Every user is assigned exactly one role; that role maps to one or more permission codes stored in the database. At login, those permission codes are read from the database and embedded directly in the JWT token, so each subsequent request carries its own authorization context without an additional database round-trip.
+
+## Data Model
+
+Four database structures work together to define access control:
+
+| Table / Column         | Columns              | Purpose                                                                                   |
+| ---------------------- | -------------------- | ----------------------------------------------------------------------------------------- |
+| `roles`                | `id`, `nombre`       | Named roles such as `ADMIN`, `ADMINISTRADOR`, `OPERADOR`. New roles can be added here without any code changes. |
+| `permisos`             | `id`, `codigo`       | Individual permission codes (e.g., `read_clients`, `export_excel`).                      |
+| `roles_permisos`       | `rol_id`, `permiso_id` | Many-to-many join table that associates one or more permissions with each role.          |
+| `usuarios.rol_id`      | FK → `roles.id`      | Each user has exactly one role, referenced by foreign key.                                |
+
+The relationship expressed as an entity diagram:
+
+```
+roles  (1) ──── (N)  roles_permisos  (N) ──── (1)  permisos
+  │
+  └── (1) ──── (N)  usuarios
+```
+
+## How Permissions Are Loaded
+
+When a user successfully authenticates against `POST /auth/login`, the login endpoint queries all permission codes linked to that user's role in a single SQL statement:
+
+```sql
+SELECT p.codigo
+FROM permisos p
+JOIN roles_permisos rp ON p.id = rp.permiso_id
+JOIN roles r ON rp.rol_id = r.id
+WHERE r.nombre = :rol
+```
+
+The `:rol` bind parameter is the `nombre` value from the `roles` table for the authenticated user. The resulting list of `codigo` strings is collected into a Python list:
+
+```python
+permisos_list = [row.codigo for row in permisos_result]
+```
+
+This list is then embedded in the JWT payload alongside the user's identity:
+
+```python
+token_payload = {
+    "sub": str(user.id),
+    "username": user.username,
+    "rol": user.rol_nombre,
+    "permisos": permisos_list
+}
+access_token = create_access_token(data=token_payload)
+```
+
+On every subsequent authenticated request, `get_current_user()` decodes the JWT and returns `permisos` directly from the payload — no second database query is needed:
+
+```python
+return {
+    ...
+    "permisos": payload.get("permisos", [])
+}
+```
+
+The token is stored as an `HttpOnly` cookie (`access_token`) with `SameSite=Lax` and a lifetime of **8 hours** (`max_age=28800`).
+
+## Admin Role
+
+The two role names recognized as administrator-level are **`ADMIN`** and **`ADMINISTRADOR`**. Holding either role unlocks the following areas of the application:
+
+- **`/config` route** — the User Management HTML page (`admin_usuarios.html`). Non-admin sessions are redirected to `/` (HTTP 303) by the `admin_required` decorator before the view function even executes.
+- **All `/admin/api/usuarios` endpoints** — Create, List, Edit, Toggle Status, and Delete. Any request from a non-admin user receives HTTP 403 with `"Acceso denegado"`.
+- **Admin sidebar menu item** — the Jinja2 base template (`index.html`) renders the Configuration link only when the current user's role matches `ADMIN` or `ADMINISTRADOR`, so the menu entry is invisible to other roles.
+
+The `admin_required` decorator that enforces the page-level guard is defined in `admin.py`:
+
+```python
+def admin_required(func):
+    async def wrapper(*args, **kwargs):
+        request: Request = kwargs.get("request")
+        ...
+        user = await run_in_threadpool(get_user_from_request, request)
+
+        if not user or user.get("rol", "").upper() not in ["ADMIN", "ADMINISTRADOR"]:
+            return RedirectResponse(url="/", status_code=303)
+
+        response = await run_in_threadpool(func, *args, **kwargs)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return response
+    return wrapper
+```
+
+The `Cache-Control` header added to every admin response ensures that browsers do not serve a cached copy of the admin page to a user who subsequently logs out or whose role changes.
+
+## JWT Payload
+
+The complete structure of a decoded access token is:
+
+```json
+{
+  "sub": "42",
+  "username": "jdoe",
+  "rol": "ADMIN",
+  "permisos": ["read_clients", "export_excel"],
+  "exp": 1700000000
+}
+```
+
+| Claim       | Type             | Description                                                     |
+| ----------- | ---------------- | --------------------------------------------------------------- |
+| `sub`       | string           | User's primary key, stored as a string per the JWT spec.        |
+| `username`  | string           | Login identifier, included for display purposes.                |
+| `rol`       | string           | Role name exactly as stored in `roles.nombre`.                  |
+| `permisos`  | array of strings | All permission `codigo` values for the user's role at login time. |
+| `exp`       | integer          | Unix timestamp for token expiry (default 8 hours after issue). |
+
+The token is signed using the algorithm and secret key defined in `app.core.config.settings` (`settings.ALGORITHM` and `settings.SECRET_KEY`). Tokens are decoded with `jwt.decode()` from the PyJWT library; an `ExpiredSignatureError` or any `PyJWTError` causes the request to fail with HTTP 401.
+
+<Tip>
+  To add a new role, insert a record into the `roles` table and link the desired permissions via rows in `roles_permisos`. **No application code needs to change** — the login endpoint queries roles and permissions dynamically at runtime using the `:rol` bind parameter.
+</Tip>
+
+<Note>
+  The role name comparison in both the `admin_required` page decorator and the individual API endpoint guards uses `.upper()`, so role names stored as `"admin"`, `"Admin"`, or `"ADMIN"` are all accepted. The JWT `rol` claim stores the name exactly as it appears in the `roles.nombre` column, so the case applied at query time is determined by what is in the database.
+</Note>

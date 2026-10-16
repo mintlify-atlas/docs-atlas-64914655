@@ -1,0 +1,87 @@
+---
+title: "Customer Information Module: Personal Data and Meter Details"
+sidebarTitle: "Client Info"
+description: "View personal details, meter specifications, debt summary, credit/debit notes, and payment agreements for any CNEL customer (RF-04)."
+---
+
+The Client Info module (`/info-cliente`) is the primary lookup screen for CNEL EP staff and implements requirement **RF-04**. It aggregates a complete customer profile from four SQL Server tables — personal data, installation history, meter assignment, and active payment agreements — and presents them alongside two sub-tables: a chronological log of credit/debit notes and a full history of payment agreements.
+
+## What It Shows
+
+The top section of the page displays the following fields for the resolved customer:
+
+| Field | Description |
+|---|---|
+| `codigo_cliente` | Unique numeric client identifier |
+| `nombre` | Customer full name |
+| `cedula` | National ID number |
+| `fecha_instalacion` | Most recent service installation date |
+| `direccion` | Primary address on record |
+| `telefono` | Contact phone number |
+| `medidor` | Current meter number |
+| `marca` | Meter manufacturer/brand |
+| `serie` | Meter serial number |
+| `modelo_medidor` | Meter model name |
+| `consumo_promedio` | Average monthly consumption (kWh) |
+| `meses_deuda` | Number of months in arrears |
+| `deuda_sap` | Outstanding balance in SAP (USD) |
+| `deuda_convenio` | Debt amount covered by active payment agreement (USD) |
+| `num_partes_convenio` | Number of installments in the active agreement |
+| `fecha_convenio` | Date the most recent agreement was registered |
+| `obs_convenio` | Free-text observations on the active agreement |
+
+## Data Sources
+
+The `obtener_cliente()` repository function joins four tables using `OUTER APPLY` to guarantee a result even when optional records are absent:
+
+| Table | Data Provided |
+|---|---|
+| `CMCLIENT` | Core personal and account fields (`nombre`, `cedula`, `direccion`, `telefono`, `consumo_promedio`, `meses_deuda`, `deuda_sap`) |
+| `CMDATTEC` | Most recent service installation date (`fecha_instalacion`), selected with `TOP 1 … ORDER BY fx_instala DESC` |
+| `CMDATMED` | Most recently assigned meter (`medidor`, `marca`, `serie`, `modelo_medidor`), selected with `TOP 1 … ORDER BY fx_instini DESC` |
+| `CMCONVEN` | Most recent payment agreement summary (`deuda_convenio`, `num_partes_convenio`, `fecha_convenio`, `obs_convenio`), selected with `TOP 1 … ORDER BY fi_convenio DESC` |
+
+## Credit/Debit Notes
+
+Below the personal data block, the **Notas de Crédito/Débito** sub-table renders every note recorded in `FAHISCRE` for the customer, ordered by calculation date and internal order descending (`ORDER BY fx_calculo DESC, qn_orden DESC`). Each row exposes these fields:
+
+| Field | Column alias | Description |
+|---|---|---|
+| `fecha` | `fx_calculo` | Date the note was calculated |
+| `numero_nota` | `qs_notadc` | Note reference number |
+| `kwh` | `qn_consumo` | Energy amount associated with the note (kWh) |
+| `valor` | `vx_ndctotal` | Monetary value of the note (USD) |
+| `tipo_cargo` | `tp_cargo` | Charge type code |
+| `codigo_nota` | `cx_indndc` | Note indicator code |
+| `orden` | `qn_orden` | Processing order within the same calculation date |
+
+If no notes exist for the customer, the table displays an empty-state message.
+
+## Payment Agreements
+
+The **Convenios** sub-table shows the complete agreement history from `CMCONVEN`, ordered by agreement date descending (`ORDER BY fi_convenio DESC`). Each row contains:
+
+| Field | Column alias | Description |
+|---|---|---|
+| `fecha` | `fi_convenio` | Agreement registration date |
+| `deuda` | `vt_deuda` | Total debt amount covered by the agreement (USD) |
+| `numero_partes` | `qn_partes` | Number of agreed installments |
+| `saldo_pendiente` | `vx_porpagar` | Remaining balance still to be paid (USD) |
+| `estado` | `ce_convenio` | Agreement status code |
+| `observacion` | `tx_observ` | Free-text observation; displayed as `"Sin observacion"` when blank |
+
+## How to Search
+
+1. Type a numeric client code into the top search bar on any page.
+2. Press **Enter** or click the magnifying-glass icon.
+3. The frontend sends a single request to the unified endpoint:
+
+```http
+GET /api/clientes/{codigo_cliente}
+```
+
+The response (`ClienteCompletoResponse`) is a single JSON object that populates all five tabs — Client Info, Account Status, Consumption, Readings, and Export — without additional network calls.
+
+<Note>
+  The `codigo_cliente` path parameter is validated against the pattern `^[0-9]+$`. Any non-numeric input (letters, symbols, decimals) will be rejected by the API before the database is queried. The UI enforces this constraint with client-side validation before the request is dispatched.
+</Note>

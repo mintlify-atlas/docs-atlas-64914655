@@ -1,0 +1,47 @@
+---
+title: "Account Status: Billing Event History and Running Balance"
+sidebarTitle: "Account Status"
+description: "Browse the complete chronological ledger of invoices, payments, and billing events with a live running balance for any CNEL customer (RF-05)."
+---
+
+The Account Status module (`/estado-cuenta`) fulfills requirement **RF-05** and presents the complete chronological ledger of all billing events recorded for a customer. Every invoice issuance, payment receipt, adjustment, and SICO-type event is sourced directly from the `FAHISDEU` table and displayed in ascending date order so staff can trace the exact evolution of a customer's balance from the earliest record to the most recent.
+
+## Data Fields
+
+The `obtener_estado_cuenta()` repository function returns one row per billing event. Each row exposes the following fields:
+
+| Field | Source column | Type | Description |
+|---|---|---|---|
+| `fecha` | `fi_evento` | date | Date the billing event was recorded |
+| `tipo_evento` | `tp_evento` | string | Event type code — `F` for invoice (*Factura*), `P` for payment (*Pago*), `S` for SICO event, or other system-defined codes |
+| `codigo_evento` | `cx_indevento` | string | Internal event identifier / reference code |
+| `factura` | `qs_factura` | integer | Invoice number associated with the event (null for non-invoice events) |
+| `valor` | `vx_evento` | decimal | Monetary amount of the event in USD |
+| `saldo` | `vx_saldo` | decimal | Cumulative outstanding balance after this event in USD |
+
+Records are ordered by `fi_evento` ascending so the ledger reads chronologically from oldest to newest.
+
+## Using the Module
+
+<Steps>
+  <Step title="Search for a customer">
+    Enter the numeric client code in the top search bar and press **Enter** or click the magnifying-glass button. Client codes must be digits only.
+  </Step>
+  <Step title="Account status loads automatically">
+    The Account Status tab is populated from the same API response that loads all other tabs. No extra action is required to fetch the ledger once a customer code has been searched.
+  </Step>
+  <Step title="Filter events">
+    Use the **Year** and **Event Type** dropdowns above the table to narrow the ledger to a specific year or to show only invoices (`F`) or payments (`P`). Click **Clear Filter** to reset both dropdowns and restore the full ledger.
+  </Step>
+  <Step title="Review the running balance">
+    Each row in the **Saldo** column reflects the cumulative balance at that point in time. The summary badge below the table always shows the balance from the last visible row after any active filters are applied.
+  </Step>
+</Steps>
+
+<Tip>
+  The `saldo` column shows the cumulative outstanding balance after each event. A **positive** saldo indicates debt owed to CNEL; a **zero or negative** saldo means the account is current or carries a credit. You can quickly assess a customer's current standing by scrolling to the last row of the unfiltered ledger.
+</Tip>
+
+<Note>
+  This module shares the same client lookup with all other modules. Searching once loads data for all five tabs — Client Info, Account Status, Consumption, Readings, and Export — in a single API call to `GET /api/clientes/{codigo_cliente}`. Switching between tabs does not trigger additional network requests.
+</Note>

@@ -1,0 +1,56 @@
+---
+title: "Meter Readings: Historical Read Logs with Observation Codes"
+sidebarTitle: "Readings"
+description: "Inspect every historical meter reading with read-type descriptions, calculated consumption, and resolved observation codes for any CNEL customer (RF-08)."
+---
+
+The Readings module (`/lectura`) fulfills requirement **RF-08** and displays the complete audit trail of every meter reading recorded for a customer. Records are sourced from `FAHISLEC` and enriched through two reference table joins: `CTTPLECT` supplies a human-readable description for each read type code, and `CTOBSERV` resolves observation codes into descriptive text. Results are returned in descending reading-date order so the most recent reads appear at the top.
+
+## Data Fields
+
+The `obtener_lecturas()` repository function returns one row per reading event. All twelve fields are available in the response:
+
+| Field | Source / Derivation | Type | Description |
+|---|---|---|---|
+| `cx_cliente` | `FAHISLEC.cx_cliente` | string / int | Client code — identifies which customer the reading belongs to |
+| `cx_nummed` | `FAHISLEC.cx_nummed` | string | Meter number at the time of the reading |
+| `fx_tomalec` | `FAHISLEC.fx_tomalec` | datetime | Date and time the reading was taken |
+| `qx_ultlec` | `FAHISLEC.qx_ultlec` | decimal | Previous meter reading value |
+| `qx_tomalec` | `FAHISLEC.qx_tomalec` | decimal | Current meter reading taken at `fx_tomalec` |
+| `qx_factlec` | `FAHISLEC.qx_factlec` | decimal | Billed reading value (may differ from `qx_tomalec` after adjustments) |
+| `consumo_kwh` | `qx_tomalec - qx_ultlec` | decimal | Calculated consumption for the period (kWh); `NULL` when `qx_ultlec` is not available |
+| `tp_lectura` | `FAHISLEC.tp_lectura` | string | Read type code (e.g., `N` for normal, `E` for estimated) |
+| `tipo_lectura_desc` | `CTTPLECT.tx_tplectura` | string | Human-readable description of the read type, joined from `CTTPLECT` |
+| `cx_observa` | `FAHISLEC.cx_observa` | string | Observation code attached to the reading |
+| `observacion_desc` | `CTOBSERV.tx_descobs` or `"Sin observacion"` | string | Resolved observation text; always `"Sin observacion"` when the code is `"00"` |
+| `cx_tipo` | `FAHISLEC.cx_tipo` | string | Record type indicator |
+
+## Calculated Consumption
+
+The `consumo_kwh` column is computed entirely on the server side inside the SQL `CASE` expression:
+
+```sql
+CASE
+    WHEN f.qx_ultlec IS NOT NULL
+    THEN f.qx_tomalec - f.qx_ultlec
+    ELSE NULL
+END AS consumo_kwh
+```
+
+This means:
+
+- When a previous reading (`qx_ultlec`) is present, the difference is pre-calculated before transmission to the frontend — no client-side arithmetic is needed.
+- When `qx_ultlec` is `NULL` (typically the very first reading on a new meter), `consumo_kwh` is also `NULL` and the UI renders a dash placeholder via the `displayValue()` helper.
+
+## Filtering
+
+The readings table supports two independent filters that can be combined:
+
+- **Year filter** — extracts the four-digit year from `fx_tomalec` using the same regex pattern used by the other modules, and populates a dropdown sorted descending.
+- **Read type filter** — populated from the distinct `tp_lectura` / `tipo_lectura_desc` pairs found in the loaded data, sorted alphabetically. Labels are shown as the description when available, falling back to the raw code.
+
+Filter state is persisted via `guardarFiltrosModulo('lectura', { anio, tipo })` so selections survive tab switches. Click **Clear Filter** to reset both dropdowns simultaneously.
+
+<Note>
+  Observation code `"00"` always resolves to `"Sin observacion"` in the SQL `CASE` expression — no lookup in `CTOBSERV` is performed for that code. All other codes are resolved via a `LEFT JOIN` on `CTOBSERV.cx_observa`; if the join produces no match, the frontend falls back to displaying the raw code prefixed with `"Observacion "`.
+</Note>

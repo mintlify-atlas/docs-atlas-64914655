@@ -1,0 +1,183 @@
+---
+title: "GET /api/export/excel/{codigo} — Download Customer Excel Report"
+sidebarTitle: "GET /api/export/excel"
+description: "Stream a fully formatted XLSX workbook containing personal data, account ledger, consumption history, and meter readings for a CNEL customer."
+---
+
+The `/api/export/excel/{codigo_cliente}` endpoint generates and streams a formatted Excel workbook (`.xlsx`) containing all available data for a given customer. Internally it calls the same data-gathering logic as `GET /api/clientes/{codigo_cliente}` and writes the result across four dedicated worksheets using `openpyxl` and `pandas`. The file is never written to disk — it is streamed directly from an in-memory buffer so there is no temporary file cleanup overhead. Authentication is required; the endpoint reuses the same JWT guard as the client data endpoint.
+
+**Endpoint:** `GET /api/export/excel/{codigo_cliente}`
+
+**Auth:** Required — JWT cookie (`access_token=Bearer <token>`) or `Authorization: Bearer <token>` header
+
+**Tags:** `Exportación`
+
+---
+
+## Path Parameters
+
+<ParamField path="codigo_cliente" type="string" required>
+  Numeric customer code. Passed directly to the internal `obtener_cliente_completo` function. Non-numeric values produce a validation error before the export logic runs.
+</ParamField>
+
+---
+
+## Response
+
+HTTP **200** — `StreamingResponse`
+
+The response body is a binary XLSX stream. Save it directly to a file.
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` |
+| `Content-Disposition` | `attachment; filename=CNEL_Analytics_{codigo_cliente}.xlsx` |
+| `Cache-Control` | `no-store` |
+
+<Note>
+  Because the workbook is generated synchronously from an in-memory `BytesIO` buffer, response time scales with the volume of historical records for the customer. Clients with dense histories (thousands of ledger or reading rows) may take a few seconds.
+</Note>
+
+---
+
+## Workbook Sheets
+
+The workbook contains four sheets, each formatted consistently (see [Formatting](#formatting-applied-to-all-sheets) below).
+
+### 1 — Datos Personales
+
+A two-column key-value layout. Every field from `ClienteBase` (see `GET /api/clientes`) is rendered as a row with the following column headers:
+
+| Column | Width (chars) | Content |
+|--------|---------------|---------|
+| **Campo** | 34 | Human-readable field label (e.g. `"Código de cliente"`, `"Consumo promedio (kWh)"`) |
+| **Valor** | 48 | The corresponding field value for the customer |
+
+Values in the **Campo** column are left-aligned; values in the **Valor** column are right-aligned.
+
+### 2 — Estado de Cuenta
+
+Account ledger entries from `fahisdeu`, with one row per event. Column order matches the source query exactly.
+
+| Column | Source field |
+|--------|-------------|
+| Fecha | `fi_evento` |
+| Tipo de evento | `tp_evento` |
+| Código de evento | `cx_indevento` |
+| Factura | `qs_factura` |
+| Valor | `vx_evento` |
+| Saldo | `vx_saldo` |
+
+<Note>
+  The **Saldo** column uses the number format `0.00` (no thousands separator) to mirror the source system's display convention. All other decimal columns use `#,##0.00`.
+</Note>
+
+### 3 — Consumos
+
+Historical billing period consumption from `fahiscon`.
+
+| Column | Source field | Notes |
+|--------|-------------|-------|
+| Período | `fx_factura` | `YYYYMM` string, e.g. `202312` |
+| Energía activa (kWh) | `qx_conact` | Active energy |
+| Energía reactiva (kvarh) | `qx_conreac` | Reactive energy |
+| Días facturados | `qn_diascons` | Days in billing cycle |
+
+### 4 — Lecturas
+
+Meter reading history from `faHISLEC`, joined against type and observation lookup tables. Twelve columns are exported in this order:
+
+| Column | Source field | Notes |
+|--------|-------------|-------|
+| Código de cliente | `cx_cliente` | |
+| Medidor | `cx_nummed` | Meter serial number |
+| Fecha de lectura | `fx_tomalec` | Date reading was taken |
+| Lectura anterior | `qx_ultlec` | Previous reading value |
+| Lectura tomada | `qx_tomalec` | Reading recorded by technician |
+| Lectura facturada | `qx_factlec` | Reading used for billing |
+| Consumo calculado (kWh) | `consumo_kwh` | `qx_tomalec − qx_ultlec` |
+| Código de tipo de lectura | `tp_lectura` | Raw type code |
+| Tipo de lectura | `tipo_lectura_desc` | Resolved from `CTTPLECT` |
+| Código de observación | `cx_observa` | Raw observation code |
+| Observación | `observacion_desc` | Resolved from `CTOBSERV`; `"Sin observacion"` when code is `"00"` |
+| Tipo de registro | `cx_tipo` | Record type indicator |
+
+---
+
+## Formatting Applied to All Sheets
+
+All four sheets receive identical formatting via the internal `format_worksheet` helper.
+
+**Header row (row 1)**
+
+- Background fill: dark navy `#243B64`
+- Font: Aptos, 11 pt, bold, white (`#FFFFFF`)
+- Alignment: left-aligned, vertically centered, wrap text enabled
+- Bottom border: medium weight, color `#6D83AC`
+- Row height: 30 pt
+
+**Data rows (row 2 onward)**
+
+- Row height: 24 pt
+- Alignment: vertically centered, wrap text enabled
+- Alternating fill: odd-numbered rows receive a light blue `#F1F5FB` background; even rows have no fill
+- Number formats applied by cell value type:
+  - Date cells → `dd/mm/yyyy`
+  - Float values → `#,##0.00`
+  - Integer values → `#,##0`
+- Exception: **Saldo** column cells always use `0.00` regardless of the above rules
+
+**Sheet-level settings**
+
+- Frozen pane at cell `A2` — the header row remains visible while scrolling
+- Grid lines hidden (`showGridLines = False`)
+- Auto-filter applied to all columns (`worksheet.auto_filter.ref = worksheet.dimensions`)
+- Excel Table created over the full data range with style **`TableStyleMedium2`** (row stripes enabled, no column stripes, no first/last column highlighting)
+
+**Column widths**
+
+- *Datos Personales* (key-value sheet): Campo column fixed at 34 chars, Valor column fixed at 48 chars
+- *All other sheets*: widths are calculated automatically from the maximum content length per column, clamped between 16 and 42 chars, with 3 chars of padding added
+
+---
+
+## Error Responses
+
+| Status | Cause |
+|--------|-------|
+| `401 Unauthorized` | Request made without a valid JWT. |
+| `404 Not Found` | No record exists for the given `codigo_cliente`. Propagated from the internal client lookup. |
+| `503 Service Unavailable` | SQL Server unreachable or a `SQLAlchemyError` is raised during data retrieval. |
+
+---
+
+## Example
+
+### Download the workbook
+
+```bash
+curl -b "access_token=Bearer <token>" \
+  "http://localhost:8000/api/export/excel/1313" \
+  --output CNEL_Analytics_1313.xlsx
+```
+
+### Python — download and open with openpyxl
+
+```python
+import requests
+import openpyxl
+import io
+
+session = requests.Session()
+# Assumes the JWT cookie was already set by a prior login request
+response = session.get("http://localhost:8000/api/export/excel/1313")
+response.raise_for_status()
+
+wb = openpyxl.load_workbook(io.BytesIO(response.content))
+print(wb.sheetnames)
+# ['Datos Personales', 'Estado de Cuenta', 'Consumos', 'Lecturas']
+```
+
+<Tip>
+  When automating exports for multiple clients, introduce a short delay between requests to avoid overwhelming the SQL Server connection pool. The endpoint does not implement rate limiting.
+</Tip>
