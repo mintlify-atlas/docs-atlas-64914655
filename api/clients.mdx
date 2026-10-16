@@ -1,6 +1,6 @@
 ---
 title: "GET /api/clientes/{codigo} — Full Customer Data Response"
-sidebarTitle: "GET /api/clientes"
+sidebarTitle: "Client Data"
 description: "Retrieve complete customer data including personal details, billing history, consumption records, payment agreements, and meter readings from CNEL systems."
 ---
 
@@ -72,6 +72,12 @@ The response is a single JSON object with seven top-level keys. All nested date-
     </ResponseField>
     <ResponseField name="deuda_sap" type="decimal | null">
       Current outstanding balance in SAP (`vx_saldo`).
+    </ResponseField>
+    <ResponseField name="nota_debito_credito" type="integer | null">
+      Count of credit/debit notes associated with the client record.
+    </ResponseField>
+    <ResponseField name="deuda_sico" type="decimal | null">
+      Outstanding balance recorded in the SICO system. May differ from `deuda_sap` when the two systems are not yet reconciled.
     </ResponseField>
     <ResponseField name="deuda_convenio" type="decimal | null">
       Total debt covered under the most recent payment agreement (`vt_deuda`).

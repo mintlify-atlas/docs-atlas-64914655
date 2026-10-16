@@ -8,10 +8,10 @@ The User Management panel gives administrators a complete CRUD interface for eve
 
 ## Accessing the Panel
 
-Navigate to **Configuration** in the application sidebar. The menu item is rendered only for admin users; all other roles see the item hidden. Attempting to reach `/config` without an admin role — whether by direct URL or expired session — results in an HTTP 303 redirect to `/` (the login page).
+Navigate to **Configuration** in the application sidebar. The menu item is rendered only for admin users; all other roles see the item hidden. Unauthenticated requests to `/config` are caught by the `@login_required` decorator and redirected to the login page at `/`. Authenticated users whose role is not `ADMIN` or `ADMINISTRADOR` are redirected to `/dashboard` with HTTP 303.
 
 <Note>
-  Non-admin users are silently redirected to `/` rather than receiving a 403 error, so the panel's existence is not exposed to unauthorized sessions.
+  Authenticated non-admin users are redirected to `/dashboard` rather than receiving a 403 error. Unauthenticated sessions are redirected to `/` (the login page) by the `@login_required` decorator before the role check is ever reached.
 </Note>
 
 ## User Fields

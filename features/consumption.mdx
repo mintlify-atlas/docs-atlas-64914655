@@ -12,7 +12,7 @@ The `obtener_consumos()` repository function returns one row per billing period.
 
 | Field | Source column | Type | Description |
 |---|---|---|---|
-| `periodo` | `fx_factura` | string | Billing period in `YYYYMM` format (e.g., `202301`) |
+| `periodo` | `fx_factura` | string | Billing period identifier (e.g., `202301`) |
 | `kwh` | `qx_conact` | decimal / int | Active energy consumed during the period (kWh) |
 | `kwh_reactiva` | `qx_conreac` | integer | Reactive energy consumed during the period (kvarh) |
 | `dias_facturados` | `qn_diascons` | integer | Number of days included in the billing period |
@@ -21,7 +21,7 @@ Records are ordered by `fx_factura DESC` so the most recent period appears at th
 
 ## Period Format
 
-Billing periods are stored as six-digit integers in `YYYYMM` format. The `formatearPeriodoConsumo()` function in `consumo.js` converts these to a human-readable `YYYY/MM` representation for display in both the table and the chart axis labels. For example:
+Billing periods are stored in `YYYYMM` format. The `formatearPeriodoConsumo()` function in `consumo.js` converts compact six-digit values to a human-readable `YYYY/MM` representation for display in both the table and the chart axis labels. For example:
 
 | Raw value (`periodo`) | Displayed as |
 |---|---|
@@ -47,7 +47,7 @@ The energy chart renders beneath the filter controls and provides a visual summa
 - **Chart type:** Line chart with area fill (`fill: true`)
 - **X-axis:** Billing periods formatted as `YYYY/MM`, displayed in chronological order (oldest → newest)
 - **Y-axis:** Active energy in kWh, starting at zero
-- **Dataset color:** Indigo (`#6366F1`) border with a semi-transparent fill
+- **Dataset color:** Indigo (`#6366F1`) border with a semi-transparent fill (`rgba(99, 102, 241, 0.1)`)
 - **Points:** 4 px radius markers on each data point
 
 Every time a year filter is applied or cleared, the existing `Chart` instance is destroyed via `consumoChartInstance.destroy()` before a new one is created on the same `<canvas id="chartConsumo">` element. This prevents the "Canvas is already in use" error that occurs when Chart.js attempts to initialize on an occupied context.

@@ -129,9 +129,15 @@ Defined in `app/routers/admin.py`, this decorator extends the pattern to enforce
 def admin_required(func):
     async def wrapper(*args, **kwargs):
         request: Request = kwargs.get("request")
-        ...
+        if not request:
+            for arg in args:
+                if isinstance(arg, Request):
+                    request = arg
+                    break
+
         user = await run_in_threadpool(get_user_from_request, request)
 
+        # Validate session exists and role is Admin
         if not user or user.get("rol", "").upper() not in ["ADMIN", "ADMINISTRADOR"]:
             return RedirectResponse(url="/", status_code=303)
 

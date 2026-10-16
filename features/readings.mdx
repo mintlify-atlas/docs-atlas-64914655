@@ -19,7 +19,7 @@ The `obtener_lecturas()` repository function returns one row per reading event. 
 | `qx_tomalec` | `FAHISLEC.qx_tomalec` | decimal | Current meter reading taken at `fx_tomalec` |
 | `qx_factlec` | `FAHISLEC.qx_factlec` | decimal | Billed reading value (may differ from `qx_tomalec` after adjustments) |
 | `consumo_kwh` | `qx_tomalec - qx_ultlec` | decimal | Calculated consumption for the period (kWh); `NULL` when `qx_ultlec` is not available |
-| `tp_lectura` | `FAHISLEC.tp_lectura` | string | Read type code (e.g., `N` for normal, `E` for estimated) |
+| `tp_lectura` | `FAHISLEC.tp_lectura` | string | Read type code (joined to `CTTPLECT` for description) |
 | `tipo_lectura_desc` | `CTTPLECT.tx_tplectura` | string | Human-readable description of the read type, joined from `CTTPLECT` |
 | `cx_observa` | `FAHISLEC.cx_observa` | string | Observation code attached to the reading |
 | `observacion_desc` | `CTOBSERV.tx_descobs` or `"Sin observacion"` | string | Resolved observation text; always `"Sin observacion"` when the code is `"00"` |
@@ -47,10 +47,10 @@ This means:
 The readings table supports two independent filters that can be combined:
 
 - **Year filter** — extracts the four-digit year from `fx_tomalec` using the same regex pattern used by the other modules, and populates a dropdown sorted descending.
-- **Read type filter** — populated from the distinct `tp_lectura` / `tipo_lectura_desc` pairs found in the loaded data, sorted alphabetically. Labels are shown as the description when available, falling back to the raw code.
+- **Read type filter** — populated from the distinct `tp_lectura` / `tipo_lectura_desc` pairs found in the loaded data, sorted alphabetically by label. When both `tp_lectura` and `tipo_lectura_desc` are present and differ, the label shown in the dropdown is the description; filtering matches against the raw code, the description, or the combined label.
 
-Filter state is persisted via `guardarFiltrosModulo('lectura', { anio, tipo })` so selections survive tab switches. Click **Clear Filter** to reset both dropdowns simultaneously.
+Filter state is persisted via `guardarFiltrosModulo('lectura', { anio, tipo })` so selections survive tab switches. The filter panel is toggled by a dedicated button (`btn-filtro-lectura`) and closes automatically when clicking outside it. Click **Clear Filter** to reset both dropdowns simultaneously.
 
 <Note>
-  Observation code `"00"` always resolves to `"Sin observacion"` in the SQL `CASE` expression — no lookup in `CTOBSERV` is performed for that code. All other codes are resolved via a `LEFT JOIN` on `CTOBSERV.cx_observa`; if the join produces no match, the frontend falls back to displaying the raw code prefixed with `"Observacion "`.
+  Observation code `"00"` always resolves to `"Sin observacion"` directly in the SQL `CASE` expression — no lookup in `CTOBSERV` is performed for that code. All other codes are resolved via a `LEFT JOIN` on `CTOBSERV.cx_observa`. If the join produces no match, the frontend falls back to displaying `"Observacion {cx_observa}"` using the raw code.
 </Note>

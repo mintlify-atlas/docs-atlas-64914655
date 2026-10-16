@@ -4,7 +4,7 @@ sidebarTitle: "Architecture"
 description: "A single FastAPI process serves Jinja2 HTML views and a JSON API, backed by a read-only SQL Server instance and a local PostgreSQL database."
 ---
 
-CNEL Analytics runs as a single Python process powered by FastAPI and uvicorn. That single process simultaneously handles two kinds of traffic: JSON API requests under the `/api/*` and `/auth/*` prefixes, and full HTML page requests for every frontend route such as `/dashboard`, `/info-cliente`, and `/estado-cuenta`. HTML responses are produced by Jinja2 templates stored in `frontend/pages/`, while static assets (CSS, JS, images) are mounted as three independent `StaticFiles` mounts under `/static/css`, `/static/js`, and `/static/img`. There is no separate Node.js build step or single-page application framework — the frontend is vanilla JavaScript loaded by the browser once the server renders and returns an HTML page.
+CNEL Analytics runs as a single Python process powered by FastAPI and uvicorn. That single process simultaneously handles two kinds of traffic: JSON API requests under the `/api/*`, `/auth/*`, and `/admin/*` prefixes, and full HTML page requests for every frontend route such as `/dashboard`, `/info-cliente`, and `/estado-cuenta`. HTML responses are produced by Jinja2 templates stored in `frontend/pages/`, while static assets (CSS, JS, images) are mounted as three independent `StaticFiles` mounts under `/static/css`, `/static/js`, and `/static/img`. There is no separate Node.js build step or single-page application framework — the frontend is vanilla JavaScript loaded by the browser once the server renders and returns an HTML page.
 
 ## Request Flow
 
@@ -37,7 +37,7 @@ The cloud engine connects to the CNEL EP SQL Server instance using `mssql+pyodbc
 | `CMDATTEC` | Technical data associated with each account |
 | `CMDATMED` | Meter device data |
 | `CMCONVEN` | Active and historical payment agreements |
-| `FAHISCRE` | Historical credit notes |
+| `FAHISCRE` | Historical credit and debit notes |
 | `FAHISDEU` | Historical debit notes and outstanding balances |
 | `FAHISCON` | Historical electricity consumption records |
 | `FAHISLEC` | Historical meter reading sequences |
@@ -97,7 +97,7 @@ CNEL-ANALITYCS/
 │   ├── app/
 │   │   ├── core/
 │   │   │   ├── config.py      # Settings from .env
-│   │   │   ├── decorators.py  # login_required, admin_required
+│   │   │   ├── decorators.py  # login_required decorator
 │   │   │   └── context_processors.py  # inject_user for Jinja2
 │   │   ├── db/
 │   │   │   └── session.py     # SQLAlchemy engines and session factories
@@ -110,7 +110,7 @@ CNEL-ANALITYCS/
 │   │   │   └── admin.py       # Admin user CRUD
 │   │   └── schemas/
 │   │       └── cliente.py     # Pydantic response models
-│   └── requirements.txt
+├── requirements.txt
 └── frontend/
     ├── pages/                 # Jinja2 HTML templates
     ├── js/                    # Vanilla JS modules per view

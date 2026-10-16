@@ -70,11 +70,11 @@ The token is stored as an `HttpOnly` cookie (`access_token`) with `SameSite=Lax`
 
 The two role names recognized as administrator-level are **`ADMIN`** and **`ADMINISTRADOR`**. Holding either role unlocks the following areas of the application:
 
-- **`/config` route** — the User Management HTML page (`admin_usuarios.html`). Non-admin sessions are redirected to `/` (HTTP 303) by the `admin_required` decorator before the view function even executes.
+- **`/config` route** — the User Management HTML page (`admin_usuarios.html`). Unauthenticated sessions are redirected to `/` by the `@login_required` decorator; authenticated sessions whose role is not `ADMIN` or `ADMINISTRADOR` are redirected to `/dashboard` (HTTP 303) by the route handler in `main.py`.
 - **All `/admin/api/usuarios` endpoints** — Create, List, Edit, Toggle Status, and Delete. Any request from a non-admin user receives HTTP 403 with `"Acceso denegado"`.
 - **Admin sidebar menu item** — the Jinja2 base template (`index.html`) renders the Configuration link only when the current user's role matches `ADMIN` or `ADMINISTRADOR`, so the menu entry is invisible to other roles.
 
-The `admin_required` decorator that enforces the page-level guard is defined in `admin.py`:
+The `admin_required` decorator is defined in `admin.py` and wraps the internal `GET /admin/usuarios` route (used within the admin router). It redirects any non-admin session to `/`:
 
 ```python
 def admin_required(func):

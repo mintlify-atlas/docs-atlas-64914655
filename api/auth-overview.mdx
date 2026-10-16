@@ -40,7 +40,7 @@ Authorization: Bearer <access_token>
 Tokens are valid for **480 minutes (8 hours)** from the moment they are issued, as set by `ACCESS_TOKEN_EXPIRE_MINUTES` in `app/core/config.py`. Once a token expires the server rejects it with HTTP 401.
 
 <Warning>
-  CNEL Analytics uses **stateless JWTs** — there is no server-side revocation list. A token remains cryptographically valid until its `exp` timestamp passes, even after the user logs out. Always clear tokens from `localStorage` on logout.
+  CNEL Analytics uses **stateless JWTs** — there is no server-side revocation list. A token remains cryptographically valid until its `exp` timestamp passes, even after the user logs out. The browser cookie is cleared by `POST /auth/logout`, but programmatic clients that extracted the raw `access_token` from the JSON response body must discard it themselves — the server cannot invalidate it remotely.
 </Warning>
 
 ## Token Payload

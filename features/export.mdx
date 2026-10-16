@@ -33,7 +33,7 @@ The generated workbook always contains exactly four sheets, in the following ord
   </Card>
 </CardGroup>
 
-All column headers use the human-readable Spanish labels defined in the `HEADER_LABELS` dictionary in `export.py` rather than the raw Python field names.
+All column headers use the human-readable Spanish labels defined in the `HEADER_LABELS` dictionary in `export.py` rather than the raw Python field names. The `Datos Personales` sheet is built by iterating over the `ClienteBase` response fields and mapping each key through `HEADER_LABELS`; fields not present in the dictionary fall back to a capitalised version of the field name.
 
 ## Formatting Features
 
@@ -45,7 +45,7 @@ Every sheet (except `Datos Personales`, which has its own fixed-width layout) is
 | **Header font** | White, bold, 11pt Aptos; left-aligned, vertically centred, with word wrap |
 | **Header border** | Medium-weight bottom border in `#6D83AC` |
 | **Frozen pane** | Row 1 is frozen at `A2` so headers remain visible while scrolling |
-| **Alternating row shading** | Odd data rows (row index `% 2 == 1`) receive a light-blue fill — `#F1F5FB` |
+| **Alternating row shading** | Rows whose absolute row index is odd (rows 3, 5, 7 …) receive a light-blue fill — `#F1F5FB`; the condition in code is `cell.row % 2 == 1` |
 | **Row height** | Header row: 30pt; all data rows: 24pt |
 | **Auto-filter** | Enabled on the full data range (`worksheet.dimensions`) |
 | **Column widths** | Auto-sized per column: minimum 16 characters, maximum 42 characters, based on the longest cell value |

@@ -4,7 +4,7 @@ sidebarTitle: "Account Status"
 description: "Browse the complete chronological ledger of invoices, payments, and billing events with a live running balance for any CNEL customer (RF-05)."
 ---
 
-The Account Status module (`/estado-cuenta`) fulfills requirement **RF-05** and presents the complete chronological ledger of all billing events recorded for a customer. Every invoice issuance, payment receipt, adjustment, and SICO-type event is sourced directly from the `FAHISDEU` table and displayed in ascending date order so staff can trace the exact evolution of a customer's balance from the earliest record to the most recent.
+The Account Status module (`/estado-cuenta`) fulfills requirement **RF-05** and presents the complete chronological ledger of all billing events recorded for a customer. Every invoice issuance and payment receipt is sourced directly from the `FAHISDEU` table and displayed in ascending date order so staff can trace the exact evolution of a customer's balance from the earliest record to the most recent.
 
 ## Data Fields
 
@@ -13,13 +13,17 @@ The `obtener_estado_cuenta()` repository function returns one row per billing ev
 | Field | Source column | Type | Description |
 |---|---|---|---|
 | `fecha` | `fi_evento` | date | Date the billing event was recorded |
-| `tipo_evento` | `tp_evento` | string | Event type code — `F` for invoice (*Factura*), `P` for payment (*Pago*), `S` for SICO event, or other system-defined codes |
+| `tipo_evento` | `tp_evento` | string | Event type code — `F` for invoice (*Factura*), `P` for payment (*Pago*), or other system-defined codes |
 | `codigo_evento` | `cx_indevento` | string | Internal event identifier / reference code |
 | `factura` | `qs_factura` | integer | Invoice number associated with the event (null for non-invoice events) |
 | `valor` | `vx_evento` | decimal | Monetary amount of the event in USD |
 | `saldo` | `vx_saldo` | decimal | Cumulative outstanding balance after this event in USD |
 
 Records are ordered by `fi_evento` ascending so the ledger reads chronologically from oldest to newest.
+
+<Note>
+  The `estado_sico` key in the API response (`GET /api/clientes/{codigo_cliente}`) is always an empty list (`[]`) in the current implementation. The `obtener_estado_cuenta()` function queries `FAHISDEU` without any filter on `tp_evento`, so all event types present in the database are included in `estado_cuenta`.
+</Note>
 
 ## Using the Module
 
@@ -31,7 +35,7 @@ Records are ordered by `fi_evento` ascending so the ledger reads chronologically
     The Account Status tab is populated from the same API response that loads all other tabs. No extra action is required to fetch the ledger once a customer code has been searched.
   </Step>
   <Step title="Filter events">
-    Use the **Year** and **Event Type** dropdowns above the table to narrow the ledger to a specific year or to show only invoices (`F`) or payments (`P`). Click **Clear Filter** to reset both dropdowns and restore the full ledger.
+    Use the **Year** and **Event Type** dropdowns above the table to narrow the ledger to a specific year or to show only a specific event type. The type dropdown is populated dynamically from the distinct `tipo_evento` values present in the loaded data — labels are shown as `"Factura (F)"` for `F` and `"Pago (P)"` for `P`; all other codes are displayed as-is. Click **Clear Filter** to reset both dropdowns and restore the full ledger.
   </Step>
   <Step title="Review the running balance">
     Each row in the **Saldo** column reflects the cumulative balance at that point in time. The summary badge below the table always shows the balance from the last visible row after any active filters are applied.

@@ -1,5 +1,5 @@
 ---
-title: "Configure CNEL Analytics Environment Variables"
+title: "CNEL Analytics Environment Variables Reference Guide"
 sidebarTitle: "Environment"
 description: "Reference for every environment variable CNEL Analytics reads at startup, covering JWT security, SQL Server, and PostgreSQL connection settings."
 ---
@@ -32,6 +32,8 @@ class Settings:
 
 settings = Settings()
 ```
+
+Two computed properties — `CLOUD_DATABASE_URL` and `LOCAL_DATABASE_URL` — are not environment variables themselves. They are `@property` methods on `Settings` that assemble a SQLAlchemy-compatible connection URL from the individual `CLOUD_DB_*` and `LOCAL_DB_*` variables at access time. `CLOUD_DATABASE_URL` builds an ODBC connection string for SQL Server using `mssql+pyodbc://`, while `LOCAL_DATABASE_URL` builds a standard `postgresql+psycopg2://` URL. Both URL-encode credentials with `urllib.parse.quote_plus` so that special characters in passwords do not break the URL. See [Database Configuration](/configuration/databases) for the full URL construction logic.
 
 ## Environment variable reference
 

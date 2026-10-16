@@ -1,6 +1,6 @@
 ---
-title: "GET /api/export/excel/{codigo} — Download Customer Excel Report"
-sidebarTitle: "GET /api/export/excel"
+title: "GET /api/export/excel — Stream Customer XLSX Report"
+sidebarTitle: "Excel Export"
 description: "Stream a fully formatted XLSX workbook containing personal data, account ledger, consumption history, and meter readings for a CNEL customer."
 ---
 
@@ -17,7 +17,7 @@ The `/api/export/excel/{codigo_cliente}` endpoint generates and streams a format
 ## Path Parameters
 
 <ParamField path="codigo_cliente" type="string" required>
-  Numeric customer code. Passed directly to the internal `obtener_cliente_completo` function. Non-numeric values produce a validation error before the export logic runs.
+  Numeric customer code passed directly to the internal `obtener_cliente_completo` function. The export router accepts any string value; a 404 is returned if the code does not match any client record in the database.
 </ParamField>
 
 ---

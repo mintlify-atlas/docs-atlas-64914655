@@ -25,10 +25,15 @@ The top section of the page displays the following fields for the resolved custo
 | `consumo_promedio` | Average monthly consumption (kWh) |
 | `meses_deuda` | Number of months in arrears |
 | `deuda_sap` | Outstanding balance in SAP (USD) |
+| `deuda_sico` | Outstanding balance in SICO (USD) |
 | `deuda_convenio` | Debt amount covered by active payment agreement (USD) |
 | `num_partes_convenio` | Number of installments in the active agreement |
 | `fecha_convenio` | Date the most recent agreement was registered |
 | `obs_convenio` | Free-text observations on the active agreement |
+
+<Note>
+  The `deuda_sico` field is present in the `ClienteBase` Pydantic schema and will be included in API responses and Excel exports whenever the database provides a value. It is distinct from `deuda_sap`, which reflects the SAP system balance.
+</Note>
 
 ## Data Sources
 
@@ -55,7 +60,9 @@ Below the personal data block, the **Notas de Crédito/Débito** sub-table rende
 | `codigo_nota` | `cx_indndc` | Note indicator code |
 | `orden` | `qn_orden` | Processing order within the same calculation date |
 
-If no notes exist for the customer, the table displays an empty-state message.
+The UI table (`tbody-creditos-debitos`) renders five visible columns — `fecha`, `numero_nota`, `kwh`, `valor`, and `tipo_cargo`. The `codigo_nota` and `orden` fields are returned in the API response and included in the Excel export but are not displayed as separate columns in the browser table.
+
+If no notes exist for the customer, the table displays the message: *"No hay notas de crédito o débito registradas."*
 
 ## Payment Agreements
 
@@ -65,10 +72,12 @@ The **Convenios** sub-table shows the complete agreement history from `CMCONVEN`
 |---|---|---|
 | `fecha` | `fi_convenio` | Agreement registration date |
 | `deuda` | `vt_deuda` | Total debt amount covered by the agreement (USD) |
-| `numero_partes` | `qn_partes` | Number of agreed installments |
 | `saldo_pendiente` | `vx_porpagar` | Remaining balance still to be paid (USD) |
+| `numero_partes` | `qn_partes` | Number of agreed installments |
 | `estado` | `ce_convenio` | Agreement status code |
 | `observacion` | `tx_observ` | Free-text observation; displayed as `"Sin observacion"` when blank |
+
+The UI table (`tbody-convenios`) renders all six columns in the order shown above. If no agreements exist for the customer, the table displays the message: *"No hay convenios registrados."*
 
 ## How to Search
 

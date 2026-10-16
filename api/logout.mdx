@@ -1,6 +1,6 @@
 ---
-title: "POST /auth/logout — End Session and Clear Cookie"
-sidebarTitle: "POST /auth/logout"
+title: "POST /auth/logout — End Session and Clear Auth Cookie"
+sidebarTitle: "Logout"
 description: "Terminate a browser session by clearing the access_token HttpOnly cookie. Stateless — no server-side token invalidation is performed."
 ---
 
@@ -65,5 +65,5 @@ After this command, `cookies.txt` will contain an expired `access_token` entry a
 ## Security Notes
 
 <Warning>
-  Logout does **not** invalidate the JWT cryptographically. Anyone who captured the raw token before logout can continue to use it until the 8-hour `exp` window closes. For high-security environments, consider implementing a server-side denylist keyed on the `jti` claim.
+  Logout does **not** invalidate the JWT cryptographically. The `access_token` cookie is cleared for browser clients, but anyone who captured the raw token value from the JSON login response can continue to use it until the 8-hour `exp` window closes. Programmatic clients must discard the token themselves. For high-security environments, consider implementing a server-side denylist keyed on the `jti` claim.
 </Warning>
